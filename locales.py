@@ -22,7 +22,7 @@ class Locale:
                 "language_ru": "Русский",
                 "language_en": "Английский",
                 "about": "О программе",
-                "version": "Версия 1.9",
+                "version": "Версия 2.5",
                 "author": "Разработчик: Volfheim",
                 "website": "Сайт: Лучший ноут",
                 "close": "Закрыть"
@@ -46,7 +46,7 @@ class Locale:
                 "language_ru": "Russian",
                 "language_en": "English",
                 "about": "About",
-                "version": "Version 1.9",
+                "version": "Version 2.5",
                 "author": "Developer: Volfheim",
                 "website": "Website: Best laptop",
                 "close": "Close"

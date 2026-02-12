@@ -1,6 +1,5 @@
-from tray import TrayIcon
 import logging
-import os
+from tray import TrayIcon
 
 if __name__ == "__main__":
     # Настройка логирования
@@ -8,7 +7,7 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler("binity.log"),
+            logging.FileHandler("binity.log", encoding="utf-8"),
             logging.StreamHandler()
         ]
     )
@@ -18,8 +17,8 @@ if __name__ == "__main__":
 
     try:
         tray = TrayIcon()
-        tray.run()
-    except Exception as e:
+        tray.run()  # Запускаем главный цикл
+    except Exception:
         logger.exception("Критическая ошибка в приложении")
         raise
 

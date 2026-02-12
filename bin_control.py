@@ -12,50 +12,47 @@ class SHQUERYRBINFO(ctypes.Structure):
     ]
 
 def get_bin_level():
+    """
+    Возвращаем уровень заполненности корзины:
+      0: пусто
+      1: <1 ГБ
+      2: <2 ГБ
+      3: <4 ГБ
+      4: >=4 ГБ
+    """
     try:
         info = SHQUERYRBINFO()
-        info.cbSize = ctypes.sizeof(SHQUERYRBINFO)
-        result = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
-
-        if result != 0:
+        info.cbSize = ctypes.sizeof(info)
+        res = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
+        if res != 0 or info.i64Size == 0:
             return 0
-
         size = info.i64Size
-        if size == 0:
-            return 0
-        elif size < 1073741824:  # < 1GB
+        if size < 1 << 30:
             return 1
-        elif size < 2147483648:  # < 2GB
+        if size < 2 << 30:
             return 2
-        elif size < 4294967296:  # < 4GB
+        if size < 4 << 30:
             return 3
-        else:
-            return 4
+        return 4
     except Exception as e:
         logger.error(f"Ошибка получения уровня корзины: {e}")
         return 0
 
 def get_bin_size():
+    """Возвращаем общий размер корзины в байтах."""
     try:
         info = SHQUERYRBINFO()
-        info.cbSize = ctypes.sizeof(SHQUERYRBINFO)
-        result = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
-
-        if result != 0:
-            return 0
-
-        return info.i64Size
+        info.cbSize = ctypes.sizeof(info)
+        res = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
+        return info.i64Size if res == 0 else 0
     except Exception as e:
         logger.error(f"Ошибка получения размера корзины: {e}")
         return 0
 
 def empty_bin():
+    """Очищаем корзину без UI и звука."""
     try:
-        SHERB_NOCONFIRMATION = 0x00000001
-        SHERB_NOPROGRESSUI = 0x00000002
-        SHERB_NOSOUND = 0x00000004
-
-        flags = SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND
+        flags = 0x00000001 | 0x00000002 | 0x00000004
         ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, flags)
         logger.info("Корзина успешно очищена")
         return True
@@ -64,11 +61,14 @@ def empty_bin():
         return False
 
 def open_recycle_bin():
+    """Открываем корзину в Проводнике."""
     try:
-        subprocess.Popen(['explorer.exe', 'shell:RecycleBinFolder'],
-                         shell=True,
-                         stdout=subprocess.DEVNULL,
-                         stderr=subprocess.DEVNULL)
+        subprocess.Popen(
+            ['explorer.exe', 'shell:RecycleBinFolder'],
+            shell=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         logger.info("Корзина успешно открыта")
         return True
     except Exception as e:

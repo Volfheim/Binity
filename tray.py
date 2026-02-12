@@ -1,290 +1,246 @@
-import pystray
-from PIL import Image, ImageTk
-from threading import Thread, Event, Lock
+import os
 import time
-import winreg
+import threading
+import logging
 import ctypes
-from bin_control import get_bin_level, empty_bin, open_recycle_bin, get_bin_size
-from utils import resource_path
 import tkinter as tk
 from tkinter import ttk
-import threading
-import os
-import logging
+import winreg
 import webbrowser
+
+import pystray
+from PIL import Image, ImageTk
+
+from bin_control import get_bin_level, get_bin_size, empty_bin, open_recycle_bin
+from utils import resource_path, format_size
 from locales import locale
 
 logger = logging.getLogger(__name__)
 
-# Настройки реестра
+# Константы реестра
 CONFIRM_KEY = r"Software\Binity"
 CONFIRM_VALUE = "ConfirmClear"
-DOUBLE_CLICK_ACTION = "DoubleClickAction"
+DOUBLE_CLICK_VALUE = "DoubleClickAction"
 LANGUAGE_VALUE = "Language"
 
-# Возможные действия при двойном клике
+# Возможные действия двойного клика
 OPEN_BIN_ACTION = 0
 CLEAR_BIN_ACTION = 1
 
 # Настройка DPI для Windows
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # Per Monitor DPI aware
-except:
-    pass
-
-
-def get_reg_value(name, default, reg_type=winreg.REG_DWORD):
-    """Универсальная функция для чтения из реестра"""
-    try:
-        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, CONFIRM_KEY)
-        value, _ = winreg.QueryValueEx(key, name)
-        winreg.CloseKey(key)
-        return value
-    except:
-        return default
-
-
-def set_reg_value(name, value, reg_type=winreg.REG_DWORD):
-    """Универсальная функция для записи в реестр"""
-    try:
-        key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIRM_KEY)
-        winreg.SetValueEx(key, name, 0, reg_type, value)
-        winreg.CloseKey(key)
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка записи в реестр: {e}")
-        return False
-
-
-def get_confirm_setting():
-    return get_reg_value(CONFIRM_VALUE, 1)
-
-
-def set_confirm_setting(value):
-    return set_reg_value(CONFIRM_VALUE, value)
-
-
-def get_double_click_action():
-    return get_reg_value(DOUBLE_CLICK_ACTION, OPEN_BIN_ACTION)
-
-
-def set_double_click_action(value):
-    return set_reg_value(DOUBLE_CLICK_ACTION, value)
-
-
-def get_language():
-    return get_reg_value(LANGUAGE_VALUE, "RU", winreg.REG_SZ)
-
-
-def set_language(value):
-    return set_reg_value(LANGUAGE_VALUE, value, winreg.REG_SZ)
-
-
-def format_size(size_bytes):
-    """Форматирует размер в байтах в читаемый вид"""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.2f} KB"
-    elif size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.2f} MB"
-    else:
-        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+except Exception as dpi_error:
+    logger.debug(f"DPI awareness setting error: {dpi_error}")
 
 
 class TrayIcon:
     def __init__(self):
-        # Устанавливаем язык из реестра
-        self.current_language = get_language()
+        # --- Локализация ---
+        self.current_language = self._reg_read(LANGUAGE_VALUE, "RU", winreg.REG_SZ)
         locale.set_language(self.current_language)
 
-        self.levels = ["bin_0", "bin_25", "bin_50", "bin_75", "bin_full"]
-        self.current_icon = None
-        self.update_icon()
-        self.last_click_time = 0
-        self.double_click_time = 0.35  # 350 ms
-        self.stop_event = Event()  # Для остановки фоновых потоков
+        # --- Двойной клик ---
+        self.last_click = 0.0
+        self.double_interval = 0.35  # секунды
 
-        # Для управления окнами
+        # --- Потоки и окна ---
+        self.stop_event = threading.Event()
+        self.window_lock = threading.Lock()
+        self.root = None
         self.about_window = None
         self.confirm_window = None
-        self.window_lock = Lock()
-        self.widget_keys = {}  # Для связи виджетов с ключами переводов
-        self.confirm_widgets = {}  # Для виджетов окна подтверждения
+        self.widget_keys = {}
+        self.confirm_widgets = {}
 
-        # Создаем иконку в трее
-        self.icon = pystray.Icon(locale.tr("app_name"))
-        self.icon.icon = self.current_icon
-        self.update_tooltip()
+        # Создаем корневое окно в отдельном потоке
+        self.gui_thread = threading.Thread(target=self._create_root_window, daemon=True)
+        self.gui_thread.start()
+        # Ожидаем инициализации GUI
+        time.sleep(0.5)
 
-        # Создаем меню
-        self.create_menu()
+        # --- Иконки уровней ---
+        self.levels = ["bin_0", "bin_25", "bin_50", "bin_75", "bin_full"]
 
-        # Назначаем обработчик клика
-        self.icon.on_click = self.on_tray_click
+        # --- Текущая иконка и тултип ---
+        self.current_icon = None
+        self._update_icon_image()
+        self.icon = pystray.Icon(
+            locale.tr("app_name"),
+            self.current_icon,
+            menu=None  # Меню будет установлено ниже
+        )
+        self._update_tooltip()
 
-        # Запускаем фоновое обновление
-        self.update_thread = Thread(target=self.auto_update, daemon=True)
-        self.update_thread.start()
+        # --- Меню (со скрытым пунктом для двойного клика) ---
+        self._update_menu()
 
-        logger.info("Инициализация TrayIcon завершена")
+        # --- Фоновое обновление ---
+        threading.Thread(target=self._auto_update, daemon=True).start()
+        logger.info("TrayIcon инициализирован")
 
-    def create_menu(self):
-        """Создает меню с учетом текущего языка"""
+    def _create_root_window(self):
+        """Создает скрытое корневое окно для управления дочерними окнами"""
+        self.root = tk.Tk()
+        self.root.withdraw()
+
+        # Настройка DPI
+        try:
+            user32 = ctypes.windll.user32
+            hwnd = user32.GetForegroundWindow()
+            dpi = user32.GetDpiForWindow(hwnd)
+            scaling_factor = dpi / 96.0
+            self.root.tk.call('tk', 'scaling', scaling_factor * 1.5)
+        except Exception as dpi_error:
+            logger.debug(f"DPI scaling error: {dpi_error}")
+            try:
+                self.root.tk.call('tk', 'scaling', 2.0)
+            except:
+                pass
+
+        # Устанавливаем иконку
+        ico = resource_path("icons/bin_full.ico")
+        if os.path.exists(ico):
+            try:
+                self.root.iconbitmap(ico)
+            except Exception as icon_error:
+                logger.error(f"Ошибка установки иконки: {icon_error}")
+
+        # Запускаем цикл обработки событий
+        self.root.mainloop()
+
+    def _update_menu(self):
+        """Обновляет меню иконки с текущими настройками"""
         self.icon.menu = pystray.Menu(
+            pystray.MenuItem("", self._on_default, default=True),
             pystray.MenuItem(locale.tr("open_bin"), self.open_bin),
             pystray.MenuItem(locale.tr("clear_bin"), self.clear_bin),
-            pystray.MenuItem(locale.tr("settings"),
-                             pystray.Menu(
-                                 pystray.MenuItem(
-                                     locale.tr("confirm_clear"),
-                                     self.toggle_confirm,
-                                     checked=lambda item: get_confirm_setting() == 1
-                                 ),
-                                 pystray.MenuItem(
-                                     locale.tr("double_click_action"),
-                                     pystray.Menu(
-                                         pystray.MenuItem(
-                                             locale.tr("open_bin_action"),
-                                             lambda: self.set_double_click_action(OPEN_BIN_ACTION),
-                                             checked=lambda item: get_double_click_action() == OPEN_BIN_ACTION,
-                                             radio=True
-                                         ),
-                                         pystray.MenuItem(
-                                             locale.tr("clear_bin_action"),
-                                             lambda: self.set_double_click_action(CLEAR_BIN_ACTION),
-                                             checked=lambda item: get_double_click_action() == CLEAR_BIN_ACTION,
-                                             radio=True
-                                         )
-                                     )
-                                 ),
-                                 pystray.MenuItem(
-                                     locale.tr("language"),
-                                     pystray.Menu(
-                                         pystray.MenuItem(
-                                             locale.tr("language_ru"),
-                                             lambda: self.set_language("RU"),
-                                             checked=lambda item: get_language() == "RU",
-                                             radio=True
-                                         ),
-                                         pystray.MenuItem(
-                                             locale.tr("language_en"),
-                                             lambda: self.set_language("EN"),
-                                             checked=lambda item: get_language() == "EN",
-                                             radio=True
-                                         )
-                                     )
-                                 )
-                             )
-                             ),
+            pystray.MenuItem(locale.tr("settings"), pystray.Menu(
+                pystray.MenuItem(
+                    locale.tr("confirm_clear"),
+                    self._toggle_confirm,
+                    checked=lambda _: self._reg_read(CONFIRM_VALUE, 1) == 1
+                ),
+                pystray.MenuItem(
+                    locale.tr("double_click_action"), pystray.Menu(
+                        pystray.MenuItem(
+                            locale.tr("open_bin_action"),
+                            lambda _: self._set_double_click_action(OPEN_BIN_ACTION),
+                            checked=lambda _: self._reg_read(DOUBLE_CLICK_VALUE, OPEN_BIN_ACTION) == OPEN_BIN_ACTION,
+                            radio=True
+                        ),
+                        pystray.MenuItem(
+                            locale.tr("clear_bin_action"),
+                            lambda _: self._set_double_click_action(CLEAR_BIN_ACTION),
+                            checked=lambda _: self._reg_read(DOUBLE_CLICK_VALUE, CLEAR_BIN_ACTION) == CLEAR_BIN_ACTION,
+                            radio=True
+                        )
+                    )
+                ),
+                pystray.MenuItem(
+                    locale.tr("language"), pystray.Menu(
+                        pystray.MenuItem(
+                            locale.tr("language_ru"),
+                            lambda _: self._set_language("RU"),
+                            checked=lambda _: self._reg_read(LANGUAGE_VALUE, "RU", winreg.REG_SZ) == "RU",
+                            radio=True
+                        ),
+                        pystray.MenuItem(
+                            locale.tr("language_en"),
+                            lambda _: self._set_language("EN"),
+                            checked=lambda _: self._reg_read(LANGUAGE_VALUE, "EN", winreg.REG_SZ) == "EN",
+                            radio=True
+                        )
+                    )
+                )
+            )),
             pystray.MenuItem(locale.tr("about"), self.show_about),
             pystray.MenuItem(locale.tr("exit"), self.quit_app)
         )
 
-    def update_tooltip(self):
-        """Обновляет текст подсказки с текущим размером корзины"""
-        try:
-            size_bytes = get_bin_size()
-            formatted_size = format_size(size_bytes)
-            self.icon.title = f"{locale.tr('recycle_bin')}: {formatted_size}"
-        except Exception as e:
-            logger.error(f"Ошибка обновления тултипа: {e}")
+    # ---------------- Double-click handler ----------------
+    def _on_default(self, icon, item):
+        """Обработчик двойного клика через скрытый пункт меню"""
+        now = time.time()
+        if now - self.last_click < self.double_interval:
+            action = self._reg_read(DOUBLE_CLICK_VALUE, OPEN_BIN_ACTION)
+            if action == OPEN_BIN_ACTION:
+                logger.info("Double-click: Open Recycle Bin")
+                self.open_bin()
+            else:
+                logger.info("Double-click: Empty Recycle Bin")
+                self.clear_bin()
+        self.last_click = now
 
-    def on_tray_click(self, icon, event):
-        """Обработчик кликов по иконке в трее"""
-        if event.button != pystray.MouseButton.LEFT:
-            return
+    # --------------- Core actions ---------------
+    def open_bin(self, icon=None, item=None):
+        open_recycle_bin()
 
-        current_time = time.time()
-        if current_time - self.last_click_time < self.double_click_time:
-            self.execute_double_click_action()
-        self.last_click_time = current_time
+    def clear_bin(self, icon=None, item=None):
+        if self._reg_read(CONFIRM_VALUE, 1) == 1:
+            self.show_modern_dialog()
+        else:
+            if empty_bin():
+                self._update_icon_image()
 
-    def execute_double_click_action(self):
-        """Выполняет действие для двойного клика"""
-        action = get_double_click_action()
-        if action == OPEN_BIN_ACTION:
-            logger.info("Двойной клик: открытие корзины")
-            self.open_bin()
-        elif action == CLEAR_BIN_ACTION:
-            logger.info("Двойной клик: очистка корзины")
-            self.clear_bin(show_confirmation=get_confirm_setting())
-
-    def set_double_click_action(self, action):
-        set_double_click_action(action)
-        logger.info(f"Установлено действие при двойном клике: {action}")
-
-    def set_language(self, lang):
-        """Устанавливает язык и мгновенно применяет изменения"""
-        set_language(lang)
-        locale.set_language(lang)
-        self.icon.title = locale.tr("app_name")
-        self.update_tooltip()
-        self.create_menu()
-        self.icon.update_menu()
-
-        # Мгновенное обновление открытых окон
-        self.update_about_window_language()
-        self.update_confirm_window_language()
-
-        logger.info(f"Язык изменен на {lang}")
-
-    def run(self):
-        """Запускает иконку в трее"""
-        self.icon.run()
-
-    def quit_app(self):
-        """Завершает работу приложения"""
+    def quit_app(self, icon=None, item=None):
         self.stop_event.set()
-
-        # Закрываем все окна перед выходом
-        self.close_all_windows()
-
-        # Даем время на закрытие окон
+        self._close_windows()
         time.sleep(0.2)
-
         self.icon.stop()
+        if self.root:
+            try:
+                self.root.quit()
+            except:
+                pass
         logger.info("Приложение завершено")
 
-    def close_all_windows(self):
-        """Закрывает все открытые окна"""
+    # --------------- Windows management ---------------
+    def _close_about_window(self):
+        """Закрывает окно 'О программе'"""
         with self.window_lock:
             if self.about_window:
                 try:
+                    # Освобождаем ресурсы изображений
+                    if hasattr(self.about_window, 'logo_img'):
+                        del self.about_window.logo_img
                     self.about_window.destroy()
-                except:
-                    pass
-                self.about_window = None
+                except Exception as e:
+                    logger.error(f"Ошибка при закрытии окна 'О программе': {e}")
+                finally:
+                    self.about_window = None
+                    self.widget_keys = {}
 
+    def _close_confirm_window(self):
+        """Закрывает окно подтверждения очистки"""
+        with self.window_lock:
             if self.confirm_window:
                 try:
                     self.confirm_window.destroy()
-                except:
-                    pass
-                self.confirm_window = None
+                except Exception as e:
+                    logger.error(f"Ошибка при закрытии окна подтверждения: {e}")
+                finally:
+                    self.confirm_window = None
+                    self.confirm_widgets = {}
 
-    def open_bin(self):
-        """Открывает корзину"""
-        logger.info("Открытие корзины")
-        open_recycle_bin()
+    def _close_windows(self):
+        """Закрывает все открытые окна"""
+        self._close_about_window()
+        self._close_confirm_window()
 
-    def clear_bin(self, show_confirmation=None):
-        """Очистка корзины с возможностью отключения подтверждения"""
-        if show_confirmation is None:
-            show_confirmation = get_confirm_setting()
-
-        if show_confirmation:
-            threading.Thread(target=self.show_modern_dialog, daemon=True).start()
-        else:
-            self.perform_empty_bin()
-
+    # --------------- Windows and dialogs ---------------
     def show_modern_dialog(self):
         """Современный диалог подтверждения очистки корзины"""
+        # Сначала закрываем окно "О программе"
+        self._close_about_window()
+        # Затем показываем диалог подтверждения
+        self._show_modern_dialog_gui()
+
+    def _show_modern_dialog_gui(self):
         try:
             with self.window_lock:
                 if self.confirm_window:
                     try:
-                        # Активируем окно
                         self.confirm_window.lift()
                         self.confirm_window.focus_force()
                         return
@@ -292,32 +248,23 @@ class TrayIcon:
                         logger.error(f"Ошибка активации окна: {e}")
                         self.confirm_window = None
 
-            # Создаем новое окно в отдельном потоке
-            root = tk.Tk()
-            with self.window_lock:
-                self.confirm_window = root
-                self.confirm_widgets = {}  # Сбрасываем предыдущие виджеты
+            # Создаем окно как Toplevel от корневого окна
+            dlg = tk.Toplevel(self.root)
+            dlg.title(locale.tr("confirm_dialog_title"))
+            dlg.resizable(False, False)
+            dlg.transient(self.root)  # Устанавливаем отношение родитель-потомок
+            dlg.grab_set()  # Захватываем фокус
 
-            root.withdraw()  # Скрываем временно
-            root.title(locale.tr("confirm_dialog_title"))
-
-            # Устанавливаем иконку приложения
-            icon_path = resource_path("icons/bin_full.ico")
-            if os.path.exists(icon_path):
-                root.iconbitmap(icon_path)
-
-            # Настройка DPI
+            # Устанавливаем иконку
             try:
-                user32 = ctypes.windll.user32
-                hwnd = user32.GetForegroundWindow()
-                dpi = user32.GetDpiForWindow(hwnd)
-                scaling_factor = dpi / 96.0
-                root.tk.call('tk', 'scaling', scaling_factor * 1.5)
-            except:
-                root.tk.call('tk', 'scaling', 2.0)
+                ico = resource_path("icons/bin_full.ico")
+                if os.path.exists(ico):
+                    dlg.iconbitmap(ico)
+            except Exception as icon_error:
+                logger.error(f"Ошибка установки иконки: {icon_error}")
 
-            # Создаем главный фрейм
-            main_frame = ttk.Frame(root, padding=(30, 25))  # Уменьшили отступы
+            # Главный фрейм
+            main_frame = ttk.Frame(dlg, padding=(30, 25))
             main_frame.pack(fill=tk.BOTH, expand=True)
 
             # Заголовок
@@ -328,24 +275,23 @@ class TrayIcon:
                 foreground="#000000"
             )
             header_label.pack(fill=tk.X, pady=(0, 15))
-            self.confirm_widgets["header"] = header_label
 
-            # Основной текст (уменьшили wraplength для лучшего отображения)
+            # Основной текст
             content_label = ttk.Label(
                 main_frame,
                 text=locale.tr("confirm_dialog_message"),
                 font=("Segoe UI", 10),
-                wraplength=600,  # Уменьшили для лучшего отображения
+                wraplength=600,
                 foreground="#000000",
                 justify=tk.LEFT
             )
             content_label.pack(fill=tk.X, pady=(0, 30))
-            self.confirm_widgets["content"] = content_label
 
-            # Кнопки
+            # Фрейм для кнопок
             button_frame = ttk.Frame(main_frame)
             button_frame.pack(fill=tk.X)
 
+            # Стиль для кнопки подтверждения
             style = ttk.Style()
             style.configure("Accent.TButton",
                             font=("Segoe UI", 10, "bold"),
@@ -359,10 +305,11 @@ class TrayIcon:
             # Кнопка "Очистить"
             def on_yes():
                 logger.info("Пользователь подтвердил очистку корзины")
+                dlg.destroy()
                 with self.window_lock:
                     self.confirm_window = None
-                root.destroy()
-                self.perform_empty_bin()
+                if empty_bin():
+                    self._update_icon_image()
 
             yes_btn = ttk.Button(
                 button_frame,
@@ -373,14 +320,13 @@ class TrayIcon:
                 padding=8
             )
             yes_btn.pack(side=tk.RIGHT)
-            self.confirm_widgets["yes_btn"] = yes_btn
 
             # Кнопка "Отмена"
             def on_no():
                 logger.info("Пользователь отменил очистку корзины")
+                dlg.destroy()
                 with self.window_lock:
                     self.confirm_window = None
-                root.destroy()
 
             no_btn = ttk.Button(
                 button_frame,
@@ -390,167 +336,150 @@ class TrayIcon:
                 padding=6
             )
             no_btn.pack(side=tk.RIGHT, padx=(15, 0))
-            self.confirm_widgets["no_btn"] = no_btn
-
-            # Устанавливаем фокус
-            root.after(100, lambda: yes_btn.focus_set())
-            root.bind("<Return>", lambda event: on_yes())
-            root.bind("<Escape>", lambda event: on_no())
 
             # Центрирование окна
-            root.update_idletasks()
-            width = root.winfo_reqwidth()
-            height = root.winfo_reqheight()
-            screen_width = root.winfo_screenwidth()
-            screen_height = root.winfo_screenheight()
+            dlg.update_idletasks()
+            width = 700
+            height = 265
+            screen_width = dlg.winfo_screenwidth()
+            screen_height = dlg.winfo_screenheight()
             x = (screen_width - width) // 2
             y = (screen_height - height) // 2
-            root.geometry(f"700x265+{x}+{y}")  # Хорошее соотношение сторон
+            dlg.geometry(f"{width}x{height}+{x}+{y}")
 
-            # Показываем окно
-            root.deiconify()
-            root.resizable(False, False)
+            # Принудительно делаем окно активным и получаем фокус
+            dlg.deiconify()
+            dlg.lift()
+            dlg.focus_force()
+
+            # Устанавливаем фокус на кнопку "Очистить"
+            yes_btn.focus_set()
+
+            # Настраиваем обработчики клавиш
+            dlg.bind("<Return>", lambda e: on_yes())
+            dlg.bind("<Escape>", lambda e: on_no())
 
             # Обработка закрытия окна
-            def on_close():
-                try:
-                    root.destroy()
-                except:
-                    pass
-                with self.window_lock:
-                    self.confirm_window = None
+            dlg.protocol("WM_DELETE_WINDOW", on_no)
 
-            root.protocol("WM_DELETE_WINDOW", on_close)
+            with self.window_lock:
+                self.confirm_window = dlg
+                # Сохраняем виджеты для обновления языка
+                self.confirm_widgets = {
+                    "header": header_label,
+                    "content": content_label,
+                    "yes_btn": yes_btn,
+                    "no_btn": no_btn
+                }
 
-            # Добавляем метод для обновления языка
-            def update_language():
-                try:
-                    if not root.winfo_exists():
-                        return
-                    root.title(locale.tr("confirm_dialog_title"))
-                    header_label.config(text=locale.tr("confirm_dialog_title"))
-                    content_label.config(text=locale.tr("confirm_dialog_message"))
-                    yes_btn.config(text=locale.tr("clear_btn"))
-                    no_btn.config(text=locale.tr("cancel_btn"))
-                except Exception as e:
-                    logger.error(f"Ошибка обновления языка диалога: {e}")
-
-            root.update_language = update_language
-
-            # Запускаем главный цикл
-            root.mainloop()
         except Exception as e:
-            logger.error(f"Ошибка при создании диалогового окна: {e}")
+            logger.error(f"Ошибка диалога подтверждения: {e}")
             with self.window_lock:
                 self.confirm_window = None
 
-    def show_about(self):
-        """Показывает окно 'О программе'"""
-        with self.window_lock:
-            if self.about_window:
-                try:
-                    # Активируем окно
-                    self.about_window.lift()
-                    self.about_window.focus_force()
-                    return
-                except Exception as e:
-                    logger.error(f"Ошибка активации окна: {e}")
-                    self.about_window = None
+    def show_about(self, icon=None, item=None):
+        """Показать окно 'О программе'"""
+        # Сначала закрываем окно подтверждения
+        self._close_confirm_window()
+        # Затем показываем окно "О программе"
+        self._show_about_gui()
 
-        threading.Thread(target=self._show_about_dialog, daemon=True).start()
-
-    def _show_about_dialog(self):
-        """Внутренняя функция для создания окна 'О программе'"""
+    def _show_about_gui(self):
         try:
-            # Создаем новое окно в отдельном потоке
-            root = tk.Tk()
             with self.window_lock:
-                self.about_window = root
-                self.widget_keys = {}  # Очищаем предыдущие привязки
+                if self.about_window:
+                    try:
+                        self.about_window.lift()
+                        self.about_window.focus_force()
+                        return
+                    except Exception as e:
+                        logger.error(f"Ошибка активации окна: {e}")
+                        self.about_window = None
 
-            root.withdraw()  # Скрываем временно
+            # Создаем окно как Toplevel от корневого окна
+            about = tk.Toplevel(self.root)
+            about.title(locale.tr("about"))
+            about.resizable(False, False)
+            about.transient(self.root)  # Устанавливаем отношение родитель-потомок
+            about.grab_set()  # Захватываем фокус
 
-            # Устанавливаем короткое название без приложения
-            root.title(locale.tr("about"))
+            # Устанавливаем иконку
+            try:
+                ico = resource_path("icons/bin_full.ico")
+                if os.path.exists(ico):
+                    about.iconbitmap(ico)
+            except Exception as icon_error:
+                logger.error(f"Ошибка установки иконки: {icon_error}")
 
-            # Устанавливаем иконку приложения
-            icon_path = resource_path("icons/bin_full.ico")
-            if os.path.exists(icon_path):
-                root.iconbitmap(icon_path)
-
-            # Устанавливаем размеры окна
-            root.geometry("400x450")
-            root.resizable(False, False)
-
-            # Основной фрейм
-            main_frame = ttk.Frame(root, padding=20)
+            # Главный фрейм
+            main_frame = ttk.Frame(about, padding=20)
             main_frame.pack(fill=tk.BOTH, expand=True)
 
+            # Устанавливаем размеры окна
+            about.geometry("400x450")
+
             # Логотип
+            logo_label = None
             try:
-                logo_path = resource_path("icons/bin_full.ico")
-                logo_img = Image.open(logo_path)
-                logo_img = logo_img.resize((80, 80), Image.LANCZOS)
-                logo_photo = ImageTk.PhotoImage(logo_img)
+                img_path = resource_path("icons/bin_full.ico")
+                img = Image.open(img_path)
+                img = img.resize((80, 80), Image.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                about.logo_img = photo  # Сохраняем ссылку
 
-                # Сохраняем ссылку на изображение в глобальной переменной
-                root.logo_image = logo_photo
-
-                logo_label = ttk.Label(main_frame, image=logo_photo)
-                logo_label.pack(pady=(10, 20))
+                logo_label = ttk.Label(main_frame, image=photo)
+                logo_label.pack(pady=(10, 15))
             except Exception as e:
-                logger.error(f"Ошибка загрузки логотипа: {e}")
-                # Заглушка на случай ошибки
-                app_label = ttk.Label(main_frame, text=locale.tr("app_name"), font=("Arial", 16, "bold"))
-                app_label.pack(pady=10)
-                self.widget_keys[app_label] = "app_name"
+                logger.error(f"Ошибка логотипа: {e}")
+                logo_label = ttk.Label(
+                    main_frame,
+                    text=locale.tr("app_name"),
+                    font=("Arial", 14, "bold")
+                )
+                logo_label.pack(pady=10)
 
-            # Информация
+            # Название приложения
             app_name_label = ttk.Label(
                 main_frame,
                 text=locale.tr("app_name"),
-                font=("Arial", 20, "bold")
+                font=("Arial", 16, "bold")
             )
             app_name_label.pack(pady=5)
-            self.widget_keys[app_name_label] = "app_name"
 
+            # Версия
             version_label = ttk.Label(
                 main_frame,
                 text=locale.tr("version"),
-                font=("Arial", 18)
+                font=("Arial", 14)
             )
             version_label.pack(pady=5)
-            self.widget_keys[version_label] = "version"
 
+            # Автор
             author_label = ttk.Label(
                 main_frame,
                 text=locale.tr("author"),
-                font=("Arial", 16)
+                font=("Arial", 12)
             )
             author_label.pack(pady=5)
-            self.widget_keys[author_label] = "author"
 
             # Ссылка на сайт
-            website_frame = ttk.Frame(main_frame)
-            website_frame.pack(pady=14)
+            web_frame = ttk.Frame(main_frame)
+            web_frame.pack(pady=10)
 
             website_label = ttk.Label(
-                website_frame,
+                web_frame,
                 text=locale.tr("website"),
-                font=("Arial", 14),
+                font=("Arial", 10),
                 foreground="blue",
                 cursor="hand2"
             )
             website_label.pack()
-            website_label.bind("<Button-1>", lambda e: webbrowser.open("https://youtu.be/Ok0JhzYFrjA"))
-            self.widget_keys[website_label] = "website"
+            website_label.bind("<Button-1>",
+                               lambda e: webbrowser.open("https://youtu.be/Ok0JhzYFrjA"))
 
             # Кнопка закрытия
             def on_close():
-                try:
-                    root.destroy()
-                except:
-                    pass
+                about.destroy()
                 with self.window_lock:
                     self.about_window = None
 
@@ -561,103 +490,161 @@ class TrayIcon:
                 width=15
             )
             close_btn.pack(pady=15)
-            self.widget_keys[close_btn] = "close"
 
             # Центрирование окна
-            root.update_idletasks()
-            width = root.winfo_reqwidth()
-            height = root.winfo_reqheight()
-            screen_width = root.winfo_screenwidth()
-            screen_height = root.winfo_screenheight()
+            about.update_idletasks()
+            width = about.winfo_reqwidth()
+            height = about.winfo_reqheight()
+            screen_width = about.winfo_screenwidth()
+            screen_height = about.winfo_screenheight()
             x = (screen_width - width) // 2
             y = (screen_height - height) // 2
-            root.geometry(f"+{x}+{y}")
+            about.geometry(f"+{x}+{y}")
 
-            # Показываем окно
-            root.deiconify()
+            # Принудительно делаем окно активным и получаем фокус
+            about.deiconify()
+            about.lift()
+            about.focus_force()
 
-            # Обработка закрытия окна
-            root.protocol("WM_DELETE_WINDOW", on_close)
-            root.bind("<Escape>", lambda e: on_close())
-            root.bind("<Return>", lambda e: on_close())
-
-            # Устанавливаем фокус на кнопке закрытия
+            # Устанавливаем фокус на кнопку "Закрыть"
             close_btn.focus_set()
 
-            # Добавляем метод для обновления языка
-            def update_language():
-                try:
-                    if not root.winfo_exists():
-                        return
-                    root.title(locale.tr("about"))
-                    for widget, key in self.widget_keys.items():
-                        if isinstance(widget, (ttk.Label, ttk.Button)):
-                            widget.config(text=locale.tr(key))
-                except Exception as e:
-                    logger.error(f"Ошибка обновления языка окна: {e}")
+            # Настраиваем обработчики клавиш
+            about.bind("<Return>", lambda e: on_close())
+            about.bind("<Escape>", lambda e: on_close())
 
-            root.update_language = update_language
+            # Обработка закрытия окна
+            about.protocol("WM_DELETE_WINDOW", on_close)
 
-            # Запускаем главный цикл
-            root.mainloop()
+            with self.window_lock:
+                self.about_window = about
+                # Сохраняем виджеты для обновления языка
+                self.widget_keys = {
+                    logo_label: "app_name",
+                    app_name_label: "app_name",
+                    version_label: "version",
+                    author_label: "author",
+                    website_label: "website",
+                    close_btn: "close"
+                }
+
         except Exception as e:
-            logger.error(f"Ошибка при создании окна 'О программе': {e}")
+            logger.error(f"Ошибка About: {e}")
             with self.window_lock:
                 self.about_window = None
 
-    def update_about_window_language(self):
+    # ---------------- Helper Methods ----------------
+    def _update_icon_image(self):
+        try:
+            lvl = get_bin_level()
+            name = f"{self.levels[lvl]}.ico"
+            path = resource_path(f"icons/{name}")
+            img = Image.open(path)
+            self.current_icon = img
+            if hasattr(self, 'icon'):
+                self.icon.icon = img
+        except Exception as e:
+            logger.error(f"Ошибка обновления иконки: {e}")
+
+    def _update_tooltip(self):
+        try:
+            size = get_bin_size()
+            self.icon.title = f"{locale.tr('recycle_bin')}: {format_size(size)}"
+        except Exception as e:
+            logger.error(f"Ошибка тултипа: {e}")
+
+    def _auto_update(self):
+        """Автоматическое обновление иконки и тултипа"""
+        while not self.stop_event.is_set():
+            try:
+                self._update_icon_image()
+                self._update_tooltip()
+                time.sleep(10)
+            except Exception as e:
+                logger.error(f"Auto-update error: {e}")
+                time.sleep(30)  # Увеличиваем задержку при ошибках
+
+    def run(self):
+        self.icon.run()
+
+    # ---------------- Registry Helpers ----------------
+    def _reg_read(self, name, default, reg_type=winreg.REG_DWORD):
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, CONFIRM_KEY)
+            val, _ = winreg.QueryValueEx(key, name)
+            winreg.CloseKey(key)
+            return val
+        except Exception as e:
+            logger.debug(f"Ошибка чтения из реестра: {e}")
+            return default
+
+    def _reg_write(self, name, value, reg_type=winreg.REG_DWORD):
+        try:
+            key = winreg.CreateKey(winreg.HKEY_CURRENT_USER, CONFIRM_KEY)
+            winreg.SetValueEx(key, name, 0, reg_type, value)
+            winreg.CloseKey(key)
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка записи в реестр: {e}")
+            return False
+
+    def _toggle_confirm(self, icon=None, item=None):
+        cur = self._reg_read(CONFIRM_VALUE, 1)
+        self._reg_write(CONFIRM_VALUE, 0 if cur == 1 else 1)
+
+    def _set_double_click_action(self, action):
+        self._reg_write(DOUBLE_CLICK_VALUE, action)
+        logger.info(f"Действие двойного клика установлено: {action}")
+
+    def _set_language(self, lang):
+        """Устанавливает язык и обновляет интерфейс"""
+        self._reg_write(LANGUAGE_VALUE, lang, winreg.REG_SZ)
+        locale.set_language(lang)
+        self.icon.title = locale.tr("app_name")
+        self._update_tooltip()
+        self._update_menu()  # Обновляем меню с новым языком
+        self._update_open_windows()  # Обновляем открытые окна
+        logger.info(f"Язык изменен на {lang}")
+
+    def _update_open_windows(self):
+        """Обновляет язык во всех открытых окнах"""
+        self._update_about_window_language()
+        self._update_confirm_window_language()
+
+    def _update_about_window_language(self):
         """Обновляет язык в открытом окне 'О программе'"""
         with self.window_lock:
             if self.about_window:
                 try:
-                    # Безопасное обновление через основной цикл окна
-                    self.about_window.after(0, self.about_window.update_language)
+                    self.about_window.title(locale.tr("about"))
+                    for widget, key in self.widget_keys.items():
+                        if widget and key:
+                            if isinstance(widget, (ttk.Label, ttk.Button)):
+                                widget.config(text=locale.tr(key))
                 except Exception as e:
                     logger.error(f"Ошибка обновления окна 'О программе': {e}")
 
-    def update_confirm_window_language(self):
+    def _update_confirm_window_language(self):
         """Обновляет язык в открытом окне подтверждения"""
         with self.window_lock:
             if self.confirm_window:
                 try:
-                    # Безопасное обновление через основной цикл окна
-                    self.confirm_window.after(0, self.confirm_window.update_language)
+                    self.confirm_window.title(locale.tr("confirm_dialog_title"))
+                    if "header" in self.confirm_widgets and self.confirm_widgets["header"]:
+                        self.confirm_widgets["header"].config(
+                            text=locale.tr("confirm_dialog_title")
+                        )
+                    if "content" in self.confirm_widgets and self.confirm_widgets["content"]:
+                        self.confirm_widgets["content"].config(
+                            text=locale.tr("confirm_dialog_message")
+                        )
+                    if "yes_btn" in self.confirm_widgets and self.confirm_widgets["yes_btn"]:
+                        self.confirm_widgets["yes_btn"].config(
+                            text=locale.tr("clear_btn")
+                        )
+                    if "no_btn" in self.confirm_widgets and self.confirm_widgets["no_btn"]:
+                        self.confirm_widgets["no_btn"].config(
+                            text=locale.tr("cancel_btn")
+                        )
                 except Exception as e:
-                    logger.error(f"Ошибка обновления диалога: {e}")
-
-    def perform_empty_bin(self):
-        """Выполняет очистку корзины и обновляет иконку"""
-        if empty_bin():
-            self.update_icon()
-
-    def toggle_confirm(self, item):
-        """Переключает настройку подтверждения очистки"""
-        current = get_confirm_setting()
-        new_value = 0 if current == 1 else 1
-        set_confirm_setting(new_value)
-        action = "отключено" if new_value == 0 else "включено"
-        logger.info(f"Подтверждение очистки {action}")
-
-    def update_icon(self):
-        """Обновляет иконку в зависимости от заполненности корзины"""
-        try:
-            level = get_bin_level()
-            icon_name = self.levels[level] + ".ico"
-            icon_path = resource_path(f"icons/{icon_name}")
-            self.current_icon = Image.open(icon_path)
-
-            if hasattr(self, 'icon'):
-                self.icon.icon = self.current_icon
-                self.update_tooltip()
-        except Exception as e:
-            logger.error(f"Ошибка обновления иконки: {e}")
-
-    def auto_update(self):
-        """Автоматическое обновление иконки и тултипа"""
-        while not self.stop_event.is_set():
-            try:
-                self.update_icon()
-                # Используем wait с таймаутом вместо sleep для возможности прерывания
-                self.stop_event.wait(10)
-            except Exception as e:
-                logger.error(f"Ошибка в фоновом обновлении: {e}")
+                    logger.error(f"Ошибка обновления диалога подтверждения: {e}")
