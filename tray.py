@@ -67,12 +67,11 @@ class TrayIcon:
         self._update_icon_image()
         self.icon = pystray.Icon(
             locale.tr("app_name"),
-            self.current_icon,
-            menu=None  # Меню будет установлено ниже
+            self.current_icon
         )
         self._update_tooltip()
 
-        # --- Меню (со скрытым пунктом для двойного клика) ---
+        # --- Меню ---
         self._update_menu()
 
         # --- Фоновое обновление ---
@@ -111,8 +110,16 @@ class TrayIcon:
 
     def _update_menu(self):
         """Обновляет меню иконки с текущими настройками"""
+        # Создаем скрытый пункт для обработки двойного клика
+        hidden_item = pystray.MenuItem(
+            "",
+            self._on_default,
+            default=True,
+            visible=False  # Делаем пункт невидимым
+        )
+
         self.icon.menu = pystray.Menu(
-            pystray.MenuItem("", self._on_default, default=True),
+            hidden_item,
             pystray.MenuItem(locale.tr("open_bin"), self.open_bin),
             pystray.MenuItem(locale.tr("clear_bin"), self.clear_bin),
             pystray.MenuItem(locale.tr("settings"), pystray.Menu(
