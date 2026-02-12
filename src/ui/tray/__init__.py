@@ -1,0 +1,1 @@
+﻿"""Tray UI for Binity."""

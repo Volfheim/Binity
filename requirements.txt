@@ -1,4 +1,1 @@
-pystray
-Pillow
-pywin32
-psutil
+PyQt6>=6.7,<7
