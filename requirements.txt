@@ -1,2 +1,2 @@
 pystray
-pillow
+Pillow
