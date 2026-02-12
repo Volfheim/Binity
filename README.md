@@ -1,40 +1,54 @@
 # Binity ⚡
-**Binity** — fast and elegant recycle bin manager for Windows system tray.
 
-![Version](https://img.shields.io/github/v/release/Volfheim/Binity)
-![License](https://img.shields.io/github/license/Volfheim/Binity)
-![Platform](https://img.shields.io/badge/platform-Windows-blue)
+**Binity** — компактный и стильный менеджер корзины Windows, живущий в системном трее.
 
-**Binity** brings the recycle bin to your system tray. Check fullness at a glance and empty it without minimizing windows. Inspired by the legendary MiniBin.
+## ✨ Возможности
 
-![Binity Icon](icons/bin_full.ico)
+- 📊 **Живая иконка**: 5 уровней заполненности (0%, 25%, 50%, 75%, 100%) — состояние корзины видно сразу.
+- 🛡️ **Безопасная очистка**: диалоги подтверждения в современном стиле Windows 10/11 предотвращают случайные нажатия.
+- 🚀 **Автозапуск**: опциональная интеграция с запуском Windows.
+- 🌍 **Локализация**: полная поддержка Русского и Английского языков.
+- 🎨 **Современный UI**: минималистичный дизайн и поддержка High DPI экранов.
+- ⚡ **Легковесность**: написан на чистом Python с использованием нативных API.
 
-## ✨ Features
-*   **📊 Live Icon**: 5 dynamic levels (0%, 25%, 50%, 75%, 100%) reflect bin status immediately.
-*   **🛡️ Safe**: Confirmation dialogs (modern Windows 11 style) prevent accidental clicks.
-*   **🚀 Autostart**: Optional integration with Windows startup.
-*   **🌍 Modern**: Written in Python, fully localized (EN/RU), and optimized for High DPI.
+## 📦 Скачать
 
-## 📦 Download
-Download the latest version from **[GitHub Releases](https://github.com/Volfheim/Binity/releases)**.
+- Актуальные версии: [GitHub Releases](https://github.com/Volfheim/Binity/releases)
 
-## 🏗 Build
-To build from source, you need Python 3.10+.
+## 🧰 Запуск из исходников
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/Volfheim/Binity.git
+cd Binity
 pip install -r requirements.txt
+python main.py
+```
 
-# 2. Build EXE (requires PyInstaller)
+## 🏗 Сборка
+
+```bash
 pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-data "icons;icons" --name "Binity" main.py
 ```
 
-## 📝 Changelog
-All notable changes are documented in **[Releases](https://github.com/Volfheim/Binity/releases)**.
+Готовый `.exe` будет в папке `dist/`.
 
-## 💡 Tribute
-Inspired by **MiniBin** (by Mike Edward Moras / e-sushi).
-*Binity is a modern, open-source re-imagining of the original concept.*
+## 🧪 Технологии
 
-## 📄 License
-Distributed under the MIT License. See `LICENSE` for more information.
+- Python 3.10+
+- pystray (системный трей)
+- Pillow (работа с иконками)
+- PyWin32 (системные вызовы)
+- Tkinter (диалоговые окна)
+
+## 📝 Изменения
+
+- Подробная история релизов: [Releases](https://github.com/Volfheim/Binity/releases)
+
+## 👨💻 Автор
+
+- **Volfheim**
+- *Based on original MiniBin by Mike Edward Moras*
+
+## 📄 Лицензия
+
+- MIT License
