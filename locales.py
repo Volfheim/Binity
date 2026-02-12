@@ -22,10 +22,13 @@ class Locale:
                 "language_ru": "Русский",
                 "language_en": "Английский",
                 "about": "О программе",
-                "version": "Версия 2.6",
+                "version": "Версия 2.9",
                 "author": "Разработчик: Volfheim",
                 "website": "Сайт: Лучший ноут",
-                "close": "Закрыть"
+                "close": "Закрыть",
+                "autostart": "Запускать с Windows",
+                "autostart_enabled": "Автозапуск включен",
+                "autostart_disabled": "Автозапуск выключен"
             },
             "EN": {
                 "app_name": "Binity",
@@ -46,10 +49,13 @@ class Locale:
                 "language_ru": "Russian",
                 "language_en": "English",
                 "about": "About",
-                "version": "Version 2.6",
+                "version": "Version 2.9",
                 "author": "Developer: Volfheim",
                 "website": "Website: Best laptop",
-                "close": "Close"
+                "close": "Close",
+                "autostart": "Run with Windows",
+                "autostart_enabled": "Autostart enabled",
+                "autostart_disabled": "Autostart disabled"
             }
         }
 
@@ -61,6 +67,4 @@ class Locale:
     def tr(self, key):
         return self.translations[self.current].get(key, key)
 
-
-# Глобальный объект локализации
 locale = Locale()

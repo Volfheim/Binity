@@ -1,0 +1,36 @@
+# UTF-8
+#
+# For more details about fixed file info 'ffi' see:
+# http://msdn.microsoft.com/en-us/library/ms646997.aspx
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(2, 9, 0, 0),
+    prodvers=(2, 9, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          '040904B0',
+          [
+            StringStruct('CompanyName', "Volfheim's company"),
+            StringStruct('FileDescription', 'Binity - Recycle Bin Manager'),
+            StringStruct('FileVersion', '2.9.0.0'),
+            StringStruct('InternalName', 'Binity'),
+            StringStruct('LegalCopyright', 'Copyright © 2025 Volfheim'),
+            StringStruct('OriginalFilename', 'Binity.exe'),
+            StringStruct('ProductName', 'Binity'),
+            StringStruct('ProductVersion', '2.9.0.0')
+          ]
+        )
+      ]
+    ),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)

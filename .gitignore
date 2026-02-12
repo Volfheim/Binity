@@ -21,3 +21,6 @@ Desktop.ini
 # IDE
 .idea/
 .vscode/
+
+# Local settings
+version.txt

@@ -1,6 +1,7 @@
 import ctypes
 import subprocess
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -12,14 +13,6 @@ class SHQUERYRBINFO(ctypes.Structure):
     ]
 
 def get_bin_level():
-    """
-    Возвращаем уровень заполненности корзины:
-      0: пусто
-      1: <1 ГБ
-      2: <2 ГБ
-      3: <4 ГБ
-      4: >=4 ГБ
-    """
     try:
         info = SHQUERYRBINFO()
         info.cbSize = ctypes.sizeof(info)
@@ -39,7 +32,6 @@ def get_bin_level():
         return 0
 
 def get_bin_size():
-    """Возвращаем общий размер корзины в байтах."""
     try:
         info = SHQUERYRBINFO()
         info.cbSize = ctypes.sizeof(info)
@@ -50,9 +42,9 @@ def get_bin_size():
         return 0
 
 def empty_bin():
-    """Очищаем корзину без UI и звука."""
     try:
-        flags = 0x00000001 | 0x00000002 | 0x00000004
+        flags = 0x00000001
+        time.sleep(1)
         ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, flags)
         logger.info("Корзина успешно очищена")
         return True
@@ -61,7 +53,6 @@ def empty_bin():
         return False
 
 def open_recycle_bin():
-    """Открываем корзину в Проводнике."""
     try:
         subprocess.Popen(
             ['explorer.exe', 'shell:RecycleBinFolder'],
