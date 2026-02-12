@@ -5,100 +5,29 @@ import urllib.request
 import urllib.error
 import subprocess
 import shutil
+import time
 
 # --- CONFIGURATION ---
 REPO = "Volfheim/Binity"
 BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-data "icons;icons" --name "Binity" main.py'
 
-# Validating user request:
-# Title: "Binity vX.X.X"
-# Body Header: "## 💎 Descriptive Title (vX.X.X)"
-# Footer: "Full Changelog: url..."
-
 RELEASES = [
     {
-        "tag": "v1.2.0",
-        "prev": None,
-        "name": "Binity v1.2.0",
-        "body": """## 🐣 MVP Release (v1.2.0)
-First working version of Binity.
-*Dev Period: Summer 2025*
+        "tag": "v3.0.0",
+        "prev": "v2.9.0",
+        "name": "Binity v3.0.0",
+        "body": r"""## 🚀 Complete Rewrite (v3.0.0)
+Major update introducing a new modular architecture and modern UI.
 
 ### ✨ Features
-- **Core**: Open and Empty Recycle Bin from system tray.
-- **UI**: Simple context menu integration.
+- **Architecture**: Rewrite from scratch using **PyQt6** and modular design (`src/`).
+- **Settings**: Configuration migrated to JSON (`%APPDATA%\Binity\settings.json`).
+- **UI**: Modern Windows 11 style dialogs and enhanced tray menu.
+- **Stability**: Added Single Instance Lock and improved error handling.
 
-### 📝 Note
-- Basic Windows 10 style interface.
-"""
-    },
-    {
-        "tag": "v1.6.0",
-        "prev": "v1.2.0",
-        "name": "Binity v1.6.0",
-        "body": """## ✨ Visual Update (v1.6.0)
-Added visual indicators for bin status.
-
-### 💄 UI Polish
-- **Live Icon**: Added 5 icon levels (0, 25, 50, 75, 100%) to reflect bin status.
-- **Settings**: Configuration via Registry integration.
-- **Safety**: Added confirmation dialog before emptying.
-"""
-    },
-    {
-        "tag": "v1.9.0",
-        "prev": "v1.6.0",
-        "name": "Binity v1.9.0",
-        "body": """## 🌍 Localization Update (v1.9.0)
-Support for multiple languages.
-
-### ✨ Features
-- **Localization**: Added English and Russian language support.
-- **About Window**: New information window with version details.
-- **Refactoring**: Code structure improvements.
-"""
-    },
-    {
-        "tag": "v2.5.0",
-        "prev": "v1.9.0",
-        "name": "Binity v2.5.0",
-        "body": """## 🛡️ Stability Update (v2.5.0)
-Technical update focused on reliability and debugging.
-
-### 🐛 Fixes
-- **Error Handling**: Improved resilience against system errors.
-- **Logging**: Added `binity.log` for troubleshooting.
-- **Tray**: Optimized tray icon behavior.
-"""
-    },
-    {
-        "tag": "v2.6.0",
-        "prev": "v2.5.0",
-        "name": "Binity v2.6.0",
-        "body": """## 🔧 Hotfix (v2.6.0)
-Maintenance update.
-
-### 🐛 Fixes
-- **Initialization**: Fixed bugs during app startup.
-- **Resources**: Optimized icon loading process.
-"""
-    },
-    {
-        "tag": "v2.9.0",
-        "prev": "v2.6.0",
-        "name": "Binity v2.9.0",
-        "body": """## 💎 Final Polish (v2.9.0)
-Final version with complete feature set.
-
-### ✨ Features
-- **Live Icon**: 5 dynamic icon levels.
-- **Autostart**: Automatic Windows startup integration.
-- **Modern UI**: Updated confirmation dialogs (Windows 10/11 style).
-- **Tribute**: Added credits to original MiniBin author.
-
-### 🚀 Verification
-- Tested on Windows 10 & 11.
-- High DPI support confirmed.
+### 📝 Notes
+- Previous registry settings are automatically migrated.
+- Requires Windows 10/11.
 """
     }
 ]
@@ -141,15 +70,33 @@ def request(url, method="GET", data=None, content_type="application/json"):
 
 def build_exe():
     print("  Building EXE...")
-    if os.path.exists("dist"): shutil.rmtree("dist")
-    if os.path.exists("build"): shutil.rmtree("build")
+    
+    # Try to cleanup
+    for _ in range(3):
+        try:
+            if os.path.exists("dist"): shutil.rmtree("dist")
+            if os.path.exists("build"): shutil.rmtree("build")
+            break
+        except Exception as e:
+            print(f"    Cleanup warning: {e}. Retrying...")
+            time.sleep(1)
+
+    if os.path.exists("Binity.spec"):
+        print("    Using Binity.spec...")
+        cmd = "pyinstaller Binity.spec"
+    else:
+        print("    Using default command...")
+        cmd = BUILD_CMD
+
     try:
-        subprocess.check_call(BUILD_CMD, shell=True)
+        subprocess.check_call(cmd, shell=True)
     except subprocess.CalledProcessError:
         print("  Build failed!")
         return None
     exe_path = os.path.join("dist", "Binity.exe")
+    # Some specs might output to dist/Binity/Binity.exe or similar, check logic
     if os.path.exists(exe_path): return exe_path
+    
     return None
 
 def process_releases():
@@ -160,14 +107,10 @@ def process_releases():
         prev = release_info["prev"]
         print(f"\nProcessing {tag}...")
 
-        # Construct Full Changelog link
         body = release_info["body"]
         if prev:
             link = f"https://github.com/{REPO}/compare/{prev}...{tag}"
             body += f"\n**Full Changelog**: {link}"
-        else:
-            # First release
-            body += f"\n**Full Changelog**: https://github.com/{REPO}/commits/{tag}"
 
         # 1. DELETE EXISTING
         try:

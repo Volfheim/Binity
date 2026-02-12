@@ -33,7 +33,11 @@ class Settings:
                 if isinstance(raw, dict):
                     self.values.update(raw)
             except Exception:
-                pass
+                try:
+                    broken_file = self.config_file.with_suffix(".broken.json")
+                    self.config_file.replace(broken_file)
+                except OSError:
+                    pass
         else:
             self._import_legacy_registry_values()
             self._save()
@@ -94,8 +98,10 @@ class Settings:
     def _save(self) -> None:
         self._normalize()
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.config_file, "w", encoding="utf-8") as fh:
+        temp_file = self.config_file.with_suffix(".tmp")
+        with open(temp_file, "w", encoding="utf-8") as fh:
             json.dump(self.values, fh, indent=2, ensure_ascii=False)
+        temp_file.replace(self.config_file)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)

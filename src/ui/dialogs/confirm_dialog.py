@@ -11,7 +11,6 @@ class ConfirmDialog(QDialog):
         super().__init__(parent)
         self.i18n = i18n
 
-        self.setWindowTitle(self.i18n.tr("confirm_dialog_title"))
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setModal(True)
         self.setMinimumWidth(420)
@@ -36,25 +35,34 @@ class ConfirmDialog(QDialog):
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(14)
 
-        title = QLabel(self.i18n.tr("confirm_dialog_title"))
-        title.setStyleSheet("font-size: 14px; font-weight: 700; color: #f8fafc;")
-        root.addWidget(title)
+        self.title_label = QLabel()
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: 700; color: #f8fafc;")
+        root.addWidget(self.title_label)
 
-        message = QLabel(self.i18n.tr("confirm_dialog_message"))
-        message.setWordWrap(True)
-        root.addWidget(message)
+        self.message_label = QLabel()
+        self.message_label.setWordWrap(True)
+        root.addWidget(self.message_label)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
 
-        cancel_btn = QPushButton(self.i18n.tr("cancel"))
-        cancel_btn.setObjectName("cancelBtn")
-        cancel_btn.clicked.connect(self.reject)
-        buttons.addWidget(cancel_btn)
+        self.cancel_btn = QPushButton()
+        self.cancel_btn.setObjectName("cancelBtn")
+        self.cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(self.cancel_btn)
 
-        confirm_btn = QPushButton(self.i18n.tr("confirm"))
-        confirm_btn.setObjectName("confirmBtn")
-        confirm_btn.clicked.connect(self.accept)
-        buttons.addWidget(confirm_btn)
+        self.confirm_btn = QPushButton()
+        self.confirm_btn.setObjectName("confirmBtn")
+        self.confirm_btn.clicked.connect(self.accept)
+        buttons.addWidget(self.confirm_btn)
 
         root.addLayout(buttons)
+        self.refresh_texts()
+
+    def refresh_texts(self) -> None:
+        title = self.i18n.tr("confirm_dialog_title")
+        self.setWindowTitle(title)
+        self.title_label.setText(title)
+        self.message_label.setText(self.i18n.tr("confirm_dialog_message"))
+        self.cancel_btn.setText(self.i18n.tr("cancel"))
+        self.confirm_btn.setText(self.i18n.tr("confirm"))

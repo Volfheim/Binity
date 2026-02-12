@@ -47,6 +47,8 @@ class TrayApp(QObject):
         self.tray.activated.connect(self._on_tray_activated)
 
         self._about_dialog: AboutDialog | None = None
+        self._confirm_dialog: ConfirmDialog | None = None
+        self._clear_in_progress = False
 
         self._build_menu()
         self._apply_menu_state()
@@ -192,6 +194,8 @@ class TrayApp(QObject):
 
         if self._about_dialog and self._about_dialog.isVisible():
             self._about_dialog.refresh_texts()
+        if self._confirm_dialog and self._confirm_dialog.isVisible():
+            self._confirm_dialog.refresh_texts()
 
     def _refresh_state(self) -> None:
         level = self.recycle_bin.get_level()
@@ -246,17 +250,31 @@ class TrayApp(QObject):
             self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_open_failed"))
 
     def clear_bin(self) -> None:
-        if self.settings.confirm_clear:
-            dialog = ConfirmDialog(self.i18n)
-            if dialog.exec() != QDialog.DialogCode.Accepted:
-                return
-
-        success = self.recycle_bin.empty_bin()
-        if not success:
-            self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_empty_failed"))
+        if self._clear_in_progress:
             return
 
-        self._refresh_state()
+        if self.settings.confirm_clear:
+            if self._confirm_dialog and self._confirm_dialog.isVisible():
+                self._focus_dialog(self._confirm_dialog)
+                return
+
+            self._confirm_dialog = ConfirmDialog(self.i18n)
+            try:
+                if self._confirm_dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+            finally:
+                self._confirm_dialog = None
+
+        self._clear_in_progress = True
+        try:
+            success = self.recycle_bin.empty_bin()
+            if not success:
+                self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_empty_failed"))
+                return
+
+            self._refresh_state()
+        finally:
+            self._clear_in_progress = False
 
     def show_about(self) -> None:
         if self._about_dialog is None:
@@ -279,3 +297,9 @@ class TrayApp(QObject):
     @staticmethod
     def _show_error(title: str, message: str) -> None:
         QMessageBox.warning(None, title, message)
+
+    @staticmethod
+    def _focus_dialog(dialog: QDialog) -> None:
+        dialog.showNormal()
+        dialog.raise_()
+        dialog.activateWindow()
