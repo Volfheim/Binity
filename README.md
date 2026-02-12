@@ -1,58 +1,40 @@
-# 🗑️ Binity
+# Binity ⚡
+**Binity** — fast and elegant recycle bin manager for Windows system tray.
 
-> **Версия:** 2.9 (Final)
-> **Дата выпуска:** 11 августа 2025
+![Version](https://img.shields.io/github/v/release/Volfheim/Binity)
+![License](https://img.shields.io/github/license/Volfheim/Binity)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
 
-**Binity** — это мощная и элегантная утилита для Windows, которая переносит управление корзиной в системный трей. Больше не нужно сворачивать все окна, чтобы проверить корзину или очистить её.
+**Binity** brings the recycle bin to your system tray. Check fullness at a glance and empty it without minimizing windows. Inspired by the legendary MiniBin.
 
 ![Binity Icon](icons/bin_full.ico)
 
-## ✨ Возможности
+## ✨ Features
+*   **📊 Live Icon**: 5 dynamic levels (0%, 25%, 50%, 75%, 100%) reflect bin status immediately.
+*   **🛡️ Safe**: Confirmation dialogs (modern Windows 11 style) prevent accidental clicks.
+*   **🚀 Autostart**: Optional integration with Windows startup.
+*   **🌍 Modern**: Written in Python, fully localized (EN/RU), and optimized for High DPI.
 
-*   **📊 Живая иконка:** 5 уровней индикации (0%, 25%, 50%, 75%, 100%) позволяют с одного взгляда оценить заполненность корзины.
-*   **🚀 Автозапуск:** Опциональная интеграция с автозагрузкой Windows.
-*   **🌍 Мультиязычность:** Полная поддержка **Русского** и **English** языков.
-*   **🛡️ Безопасность:** Защита от случайной очистки с современным диалогом подтверждения (стиль Windows 11).
-*   **⚡ Быстродействие:** Написано на Python с использованием нативных вызовов Windows API.
-*   **⚙️ Гибкие настройки:**
-    *   Действие по двойному клику (Открыть / Очистить).
-    *   Включение/выключение подтверждений.
+## 📦 Download
+Download the latest version from **[GitHub Releases](https://github.com/Volfheim/Binity/releases)**.
 
-## 🚀 Установка и запуск
+## 🏗 Build
+To build from source, you need Python 3.10+.
 
-### Вариант 1: Запуск из исходного кода
-1.  Убедитесь, что у вас установлен Python 3.10+.
-2.  Клонируйте репозиторий.
-3.  Установите зависимости:
-    ```bash
-    pip install -r requirements.txt
-    ```
-4.  Запустите:
-    ```bash
-    python main.py
-    ```
-
-### Вариант 2: Сборка EXE
-Используйте PyInstaller для создания исполняемого файла:
 ```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Build EXE (requires PyInstaller)
 pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-data "icons;icons" --name "Binity" main.py
 ```
 
-## 🛠️ Технологии
-*   **Python 3**
-*   **Pystray** (иконка в трее)
-*   **Tkinter** (диалоговые окна)
-*   **PyWin32** (системные вызовы)
-*   **Pillow** (обработка изображений)
+## 📝 Changelog
+All notable changes are documented in **[Releases](https://github.com/Volfheim/Binity/releases)**.
 
-## 💡 Вдохновение и Благодарности
+## 💡 Tribute
+Inspired by **MiniBin** (by Mike Edward Moras / e-sushi).
+*Binity is a modern, open-source re-imagining of the original concept.*
 
-Этот проект был вдохновлен легендарной утилитой **MiniBin**, созданной **Mike Edward Moras (e-sushi)**.
-Оригинальная программа была незаменимым помощником в эпоху Windows 7, но, к сожалению, её поддержка прекратилась, а официальный сайт исчез.
-
-**Binity** — это дань уважения оригинальной идее, переписанная с нуля на современной архитектуре, с открытым исходным кодом и без лишних "сюрпризов".
-*Mike, спасибо за идею!*
-
-## 👤 Автор
-Разработано **Volfheim**
-© 2025 Все права защищены.
+## 📄 License
+Distributed under the MIT License. See `LICENSE` for more information.
