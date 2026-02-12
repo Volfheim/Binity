@@ -38,6 +38,7 @@ class Settings:
                     self.config_file.replace(broken_file)
                 except OSError:
                     pass
+                self._save()
         else:
             self._import_legacy_registry_values()
             self._save()

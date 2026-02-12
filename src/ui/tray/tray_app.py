@@ -1,10 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Dict
 
-from PyQt6.QtCore import QObject, QTimer
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import QDialog, QMenu, QMessageBox, QSystemTrayIcon
 
@@ -17,8 +16,6 @@ from src.services.recycle_bin import RecycleBinService
 from src.ui.dialogs.about_dialog import AboutDialog
 from src.ui.dialogs.confirm_dialog import ConfirmDialog
 
-logger = logging.getLogger(__name__)
-
 OPEN_ACTION = "open"
 CLEAR_ACTION = "clear"
 
@@ -29,6 +26,21 @@ ICON_MAP = {
     3: "icons/bin_75.ico",
     4: "icons/bin_full.ico",
 }
+
+
+class _ClearBinTaskSignals(QObject):
+    finished = pyqtSignal(bool)
+
+
+class _ClearBinTask(QRunnable):
+    def __init__(self, recycle_bin: RecycleBinService) -> None:
+        super().__init__()
+        self.recycle_bin = recycle_bin
+        self.signals = _ClearBinTaskSignals()
+
+    def run(self) -> None:
+        success = self.recycle_bin.empty_bin()
+        self.signals.finished.emit(success)
 
 
 class TrayApp(QObject):
@@ -49,6 +61,8 @@ class TrayApp(QObject):
         self._about_dialog: AboutDialog | None = None
         self._confirm_dialog: ConfirmDialog | None = None
         self._clear_in_progress = False
+        self._clear_task: _ClearBinTask | None = None
+        self._thread_pool = QThreadPool.globalInstance()
 
         self._build_menu()
         self._apply_menu_state()
@@ -60,8 +74,6 @@ class TrayApp(QObject):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_state)
         self.timer.start(self.settings.update_interval_sec * 1000)
-
-        logger.info("Tray UI initialized")
 
     def _load_icons(self) -> Dict[int, QIcon]:
         icons: Dict[int, QIcon] = {}
@@ -265,16 +277,29 @@ class TrayApp(QObject):
             finally:
                 self._confirm_dialog = None
 
-        self._clear_in_progress = True
-        try:
-            success = self.recycle_bin.empty_bin()
-            if not success:
-                self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_empty_failed"))
-                return
+        self._start_clear_task()
 
-            self._refresh_state()
-        finally:
-            self._clear_in_progress = False
+    def _start_clear_task(self) -> None:
+        self._clear_in_progress = True
+        self.clear_action.setEnabled(False)
+        self.double_click_clear_action.setEnabled(False)
+
+        task = _ClearBinTask(self.recycle_bin)
+        task.signals.finished.connect(self._on_clear_task_finished)
+        self._clear_task = task
+        self._thread_pool.start(task)
+
+    def _on_clear_task_finished(self, success: bool) -> None:
+        self._clear_in_progress = False
+        self.clear_action.setEnabled(True)
+        self.double_click_clear_action.setEnabled(True)
+        self._clear_task = None
+
+        if not success:
+            self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_empty_failed"))
+            return
+
+        self._refresh_state()
 
     def show_about(self) -> None:
         if self._about_dialog is None:

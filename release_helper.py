@@ -13,21 +13,25 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.0.0",
-        "prev": "v2.9.0",
-        "name": "Binity v3.0.0",
-        "body": r"""## 🚀 Complete Rewrite (v3.0.0)
-Major update introducing a new modular architecture and modern UI.
+        "tag": "v3.0.1",
+        "prev": "v3.0.0",
+        "name": "Binity v3.0.1",
+        "body": """## 🛡️ Stability Update (v3.0.1)
+Important stability and quality-of-life update.
 
-### ✨ Features
-- **Architecture**: Rewrite from scratch using **PyQt6** and modular design (`src/`).
-- **Settings**: Configuration migrated to JSON (`%APPDATA%\Binity\settings.json`).
-- **UI**: Modern Windows 11 style dialogs and enhanced tray menu.
-- **Stability**: Added Single Instance Lock and improved error handling.
+### 🛡️ Core Improvements
+- **Async Operations**: Recycle bin clearing is now non-blocking (background thread).
+- **Autostart**: Enhanced validation and cleanup of legacy startup scripts.
+- **Performance**: Removed logging overhead for cleaner runtime.
+- **Settings**: Atomic saving prevents config corruption.
+- **Error Handling**: Corrupted settings files are now safely backed up to `.broken.json`.
+
+### 🎨 UI & UX
+- **About Window**: Redesigned functional layout with GitHub integration.
+- **Bug Fix**: Resolved issue with infinite confirmation dialogs.
 
 ### 📝 Notes
-- Previous registry settings are automatically migrated.
-- Requires Windows 10/11.
+- Recommended update for all users.
 """
     }
 ]
@@ -71,7 +75,6 @@ def request(url, method="GET", data=None, content_type="application/json"):
 def build_exe():
     print("  Building EXE...")
     
-    # Try to cleanup
     for _ in range(3):
         try:
             if os.path.exists("dist"): shutil.rmtree("dist")
@@ -94,12 +97,16 @@ def build_exe():
         print("  Build failed!")
         return None
     exe_path = os.path.join("dist", "Binity.exe")
-    # Some specs might output to dist/Binity/Binity.exe or similar, check logic
     if os.path.exists(exe_path): return exe_path
-    
     return None
 
 def process_releases():
+    # Force tag update logic
+    # We are already on the right commit hash when we run this usually, or main.
+    # The user wants to FORCE push the tag v3.0.1 to point to the NEW commit we are about to make.
+    # But this script runs AFTER the commit/push flow usually.
+    # So here we just focus on release creation.
+    
     subprocess.call("git checkout main", shell=True)
     
     for release_info in RELEASES:
@@ -112,7 +119,7 @@ def process_releases():
             link = f"https://github.com/{REPO}/compare/{prev}...{tag}"
             body += f"\n**Full Changelog**: {link}"
 
-        # 1. DELETE EXISTING
+        # 1. DELETE EXISTING RELEASE
         try:
             existing = request(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")
             print(f"  Deleting existing release {existing['id']}...")
@@ -120,7 +127,12 @@ def process_releases():
         except urllib.error.HTTPError as e:
             if e.code != 404: print(f"  Error checking release: {e}")
 
-        # 2. CHECKOUT TAG
+        # 2. CHECKOUT TAG (Ensure local tag is up to date with remote or current HEAD if we just pushed it)
+        # Since we are doing a force push flow manually before this script, we can assume 'git checkout tag' works 
+        # IF we fetched or if we created it locally. 
+        # Actually, simpler to just start from main if we pushed main.
+        # But 'build_exe' relies on being on the right commit.
+        # Let's assume the user (me) runs the git commands before this script.
         subprocess.check_call(f"git checkout {tag}", shell=True)
         
         # 3. BUILD EXE
