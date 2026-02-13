@@ -13,40 +13,23 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.3.2",
-        "prev": "v3.3.1",
-        "name": "Binity v3.3.2",
-        "body": """## 🔊 New Sound (v3.3.2)
-Minor update adding a new sound effect.
-
-### 🔊 Features
-- **Sound**: Added a new "Throw in trash" sound effect.
-
-### 📝 Notes
-- Enjoy the satisfying sound of cleaning up!
-"""
-    },
-    {
         "tag": "v3.3.1",
         "prev": "v3.3.0",
         "name": "Binity v3.3.1",
-        "body": """## 🛠️ Updater Stability & UI Polish (v3.3.1)
-Update focused on making the auto-updater rock solid and improving visual consistency.
+        "body": """## 🚀 Updater Stability (v3.3.1)
+Major reliability improvements for the auto-updater and UI polish.
 
-### 🔄 Updater Improvements
-- **Robustness**: Updater script now has fallback mechanisms. If replacing the EXE fails (e.g. locked file), it runs from a staging area to ensure the app still launches.
-- **Fail-Safe**: New handshake system ensures the new version started successfully; otherwise, it reverts or retries.
-- **Visibility**: Added a progress bar dialog during download so you know what's happening.
-- **Logs**: Updater now writes to `update.log` in the local app data folder for easier troubleshooting.
+### 🔄 Updater
+- **Robustness**: Increased download timeouts (180s) and added retry logic to prevent failures on slow connections.
+- **Fallbacks**: If replacing the file fails, the app now launches from a temporary location and notifies the user.
+- **UI**: Added a wider update dialog and explicit progress bar for downloads.
 
-### 🎨 UI & Polish
-- **Icons**: Fixed missing icons in dialogs (e.g. "Already running", "Confirm Delete") to ensure no empty window headers.
-- **Release Notes**: Cleaned up the "What's New" text in the update dialog to remove raw Markdown symbols (###, **) for a cleaner look.
-
-### 📝 Notes
-- This release ensures seamless updates for future versions.
+### 🐛 Fixes
+- **Icons**: Fixed missing icons in "Already running" and confirmation dialogs.
+- **Notes**: Cleaner release notes display (removed raw Markdown).
 """
     },
+
     {
         "tag": "v3.3.0",
         "prev": "v3.2.1",

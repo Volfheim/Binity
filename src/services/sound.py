@@ -8,7 +8,6 @@ from src.core.resources import resource_path
 SOUND_OFF = "off"
 SOUND_WINDOWS = "windows"
 SOUND_PAPER = "paper"
-SOUND_TRASH = "trash"
 
 
 class SoundService:
@@ -36,14 +35,7 @@ class SoundService:
             except RuntimeError:
                 pass
 
-        if mode == SOUND_TRASH and self.trash_sound_path.exists():
-            try:
-                winsound.PlaySound(str(self.trash_sound_path), winsound.SND_FILENAME | winsound.SND_ASYNC)
-                return
-            except RuntimeError:
-                pass
-
-        if mode in (SOUND_WINDOWS, SOUND_PAPER, SOUND_TRASH):
+        if mode in (SOUND_WINDOWS, SOUND_PAPER):
             try:
                 winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
             except RuntimeError:

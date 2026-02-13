@@ -22,7 +22,7 @@ from src.services.recycle_bin import (
     SECURE_DELETE_RANDOM,
     SECURE_DELETE_ZERO,
 )
-from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_TRASH, SOUND_WINDOWS, SoundService
+from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_WINDOWS, SoundService
 from src.services.system_theme import SystemThemeService
 from src.ui.dialogs.about_dialog import AboutDialog
 from src.ui.dialogs.confirm_dialog import ConfirmDialog
@@ -145,12 +145,7 @@ class TrayApp(QObject):
         if show_after_update or self.updater.just_updated:
             QTimer.singleShot(
                 1800,
-                lambda: self.tray.showMessage(
-                    self.i18n.tr("app_name"),
-                    self.i18n.tr("update_installed"),
-                    QSystemTrayIcon.MessageIcon.Information,
-                    2800,
-                ),
+                self._show_post_update_notification,
             )
 
     def _theme_icon_path(self, relative_path: str, theme: str) -> str:
@@ -256,19 +251,13 @@ class TrayApp(QObject):
         self.sound_paper_action.setCheckable(True)
         self.sound_paper_action.triggered.connect(lambda: self._set_clear_sound(SOUND_PAPER))
 
-        self.sound_trash_action = QAction(self.sound_menu)
-        self.sound_trash_action.setCheckable(True)
-        self.sound_trash_action.triggered.connect(lambda: self._set_clear_sound(SOUND_TRASH))
-
         self.sound_group.addAction(self.sound_off_action)
         self.sound_group.addAction(self.sound_windows_action)
         self.sound_group.addAction(self.sound_paper_action)
-        self.sound_group.addAction(self.sound_trash_action)
 
         self.sound_menu.addAction(self.sound_off_action)
         self.sound_menu.addAction(self.sound_windows_action)
         self.sound_menu.addAction(self.sound_paper_action)
-        self.sound_menu.addAction(self.sound_trash_action)
         self.settings_menu.addMenu(self.sound_menu)
 
         self.secure_delete_menu = QMenu(self.settings_menu)
@@ -366,7 +355,6 @@ class TrayApp(QObject):
         self.sound_off_action.setChecked(sound_mode == SOUND_OFF)
         self.sound_windows_action.setChecked(sound_mode == SOUND_WINDOWS)
         self.sound_paper_action.setChecked(sound_mode == SOUND_PAPER)
-        self.sound_trash_action.setChecked(sound_mode == SOUND_TRASH)
 
         secure_mode = self.settings.secure_delete_mode
         self.secure_delete_off_action.setChecked(secure_mode == SECURE_DELETE_OFF)
@@ -406,7 +394,6 @@ class TrayApp(QObject):
         self.sound_off_action.setText(self.i18n.tr("sound_off"))
         self.sound_windows_action.setText(self.i18n.tr("sound_windows"))
         self.sound_paper_action.setText(self.i18n.tr("sound_paper"))
-        self.sound_trash_action.setText(self.i18n.tr("sound_trash"))
 
         self.secure_delete_menu.setTitle(self.i18n.tr("secure_delete"))
         self.secure_delete_off_action.setText(self.i18n.tr("secure_delete_off"))
@@ -545,6 +532,26 @@ class TrayApp(QObject):
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
         return normalized or "-"
 
+    def _show_post_update_notification(self) -> None:
+        if self.updater.launched_from_fallback_path:
+            self.tray.showMessage(
+                self.i18n.tr("app_name"),
+                self.i18n.tr("update_running_from_fallback").format(
+                    path=self.updater.launch_target_path,
+                    final=self.updater.launch_final_path,
+                ),
+                QSystemTrayIcon.MessageIcon.Warning,
+                6500,
+            )
+            return
+
+        self.tray.showMessage(
+            self.i18n.tr("app_name"),
+            self.i18n.tr("update_installed"),
+            QSystemTrayIcon.MessageIcon.Information,
+            3000,
+        )
+
     def _sync_system_theme(self) -> None:
         if not self.settings.theme_sync:
             return
@@ -606,7 +613,7 @@ class TrayApp(QObject):
         self._apply_menu_state()
 
     def _set_clear_sound(self, mode: str) -> None:
-        if mode not in (SOUND_OFF, SOUND_WINDOWS, SOUND_PAPER, SOUND_TRASH):
+        if mode not in (SOUND_OFF, SOUND_WINDOWS, SOUND_PAPER):
             return
         self.settings.set("clear_sound", mode)
         self._apply_menu_state()
@@ -818,6 +825,17 @@ class TrayApp(QObject):
             self.i18n.tr("update_dialog_message").format(version=self.updater.update_version),
             informative_text=self.i18n.tr("update_dialog_hint"),
             detailed_text=f"{self.i18n.tr('release_notes')}:\n\n{release_notes}",
+        )
+        msg.setStyleSheet(
+            """
+            QLabel {
+                min-width: 520px;
+            }
+            QTextEdit {
+                min-width: 560px;
+                min-height: 260px;
+            }
+            """
         )
 
         btn_update = msg.addButton(self.i18n.tr("update_install"), QMessageBox.ButtonRole.AcceptRole)

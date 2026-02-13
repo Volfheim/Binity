@@ -186,7 +186,7 @@ class Settings:
     @property
     def clear_sound(self) -> str:
         sound_mode = str(self.get("clear_sound", "paper")).lower()
-        return sound_mode if sound_mode in ("off", "windows", "paper", "trash") else "off"
+        return sound_mode if sound_mode in ("off", "windows", "paper") else "off"
 
     @property
     def overflow_notify_enabled(self) -> bool:

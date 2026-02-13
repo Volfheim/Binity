@@ -19,6 +19,8 @@ GITHUB_HEADERS = {
     "User-Agent": "Binity-Updater",
 }
 CHECK_INTERVAL_HOURS = 12
+DOWNLOAD_SOCKET_TIMEOUT_SEC = 180
+DOWNLOAD_RETRY_COUNT = 2
 
 
 @dataclass(slots=True)
@@ -37,7 +39,10 @@ class Updater:
         self._checking = False
         self._downloading = False
         self._just_updated = self._check_and_clear_flag()
+        self.launch_target_path = ""
+        self.launch_final_path = ""
         self.last_error = ""
+        self._consume_launch_info()
         self._cleanup_runtime_leftovers()
 
     @staticmethod
@@ -47,6 +52,14 @@ class Updater:
     @property
     def just_updated(self) -> bool:
         return self._just_updated
+
+    @property
+    def launched_from_fallback_path(self) -> bool:
+        if not self.launch_target_path:
+            return False
+        if not self.launch_final_path:
+            return False
+        return str(self.launch_target_path).lower() != str(self.launch_final_path).lower()
 
     @property
     def has_update(self) -> bool:
@@ -139,7 +152,10 @@ class Updater:
             if response.status != 200:
                 raise RuntimeError(f"HTTP {response.status}")
             payload = response.read().decode("utf-8", errors="replace")
-            return json.loads(payload)
+            raw = json.loads(payload)
+            if isinstance(raw, dict):
+                return raw
+            return {}
 
     def _select_asset(self, assets: list[dict], tag_name: str) -> dict | None:
         version_hint = str(tag_name or "").lstrip("vV").strip().lower()
@@ -182,35 +198,41 @@ class Updater:
         self.last_error = ""
 
         try:
-            data = self._fetch_latest_release()
-            tag_name = str(data.get("tag_name", "") or "")
+            release = self._fetch_latest_release()
+            local_ver = self._parse_version(__version__)
+            skipped = str(self.settings.get("skipped_update_version", "") or "")
+
+            if bool(release.get("draft")) or bool(release.get("prerelease")):
+                self.settings.set("last_update_check", datetime.now().isoformat())
+                self._info = None
+                return None
+
+            tag_name = str(release.get("tag_name", "") or "")
             if not tag_name:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
                 return None
 
             remote_ver = self._parse_version(tag_name)
-            local_ver = self._parse_version(__version__)
             if remote_ver <= local_ver:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
                 return None
 
-            skipped = str(self.settings.get("skipped_update_version", "") or "")
-            if not force and skipped == tag_name:
+            if not force and skipped and skipped == tag_name:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
                 return None
 
-            asset = self._select_asset(list(data.get("assets", [])), tag_name)
-            if not asset:
+            selected_asset = self._select_asset(list(release.get("assets", [])), tag_name)
+            if selected_asset is None:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
                 return None
 
-            download_url = str(asset.get("browser_download_url", "") or "")
-            asset_name = str(asset.get("name", "") or "")
-            asset_size = int(asset.get("size", 0) or 0)
+            download_url = str(selected_asset.get("browser_download_url", "") or "")
+            asset_name = str(selected_asset.get("name", "") or "")
+            asset_size = int(selected_asset.get("size", 0) or 0)
             if not download_url:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
@@ -219,7 +241,7 @@ class Updater:
             self._info = UpdateInfo(
                 version=tag_name,
                 download_url=download_url,
-                body=str(data.get("body", "") or ""),
+                body=str(release.get("body", "") or ""),
                 asset_name=asset_name,
                 asset_size=asset_size,
             )
@@ -272,25 +294,35 @@ class Updater:
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
                 target.unlink()
-
             request = urllib.request.Request(self._info.download_url, headers=GITHUB_HEADERS, method="GET")
-            with urllib.request.urlopen(request, timeout=30) as response:
-                status = getattr(response, "status", 200)
-                if status != 200:
-                    raise RuntimeError(f"HTTP {status}")
+            for attempt in range(1, DOWNLOAD_RETRY_COUNT + 1):
+                try:
+                    with urllib.request.urlopen(request, timeout=DOWNLOAD_SOCKET_TIMEOUT_SEC) as response:
+                        status = getattr(response, "status", 200)
+                        if status != 200:
+                            raise RuntimeError(f"HTTP {status}")
 
-                total_size = int(response.headers.get("Content-Length", "0") or 0)
-                downloaded = 0
-                with open(target, "wb") as output:
-                    while True:
-                        chunk = response.read(256 * 1024)
-                        if not chunk:
-                            break
-                        output.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0 and on_progress:
-                            pct = int(downloaded / total_size * 100)
-                            on_progress(max(0, min(100, pct)))
+                        total_size = int(response.headers.get("Content-Length", "0") or 0)
+                        downloaded = 0
+                        with open(target, "wb") as output:
+                            while True:
+                                chunk = response.read(256 * 1024)
+                                if not chunk:
+                                    break
+                                output.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0 and on_progress:
+                                    pct = int(downloaded / total_size * 100)
+                                    on_progress(max(0, min(100, pct)))
+                    break
+                except (urllib.error.URLError, TimeoutError, OSError, RuntimeError) as exc:
+                    try:
+                        if target.exists():
+                            target.unlink()
+                    except OSError:
+                        pass
+                    if attempt >= DOWNLOAD_RETRY_COUNT:
+                        raise RuntimeError(str(exc)) from exc
 
             if not target.exists():
                 raise RuntimeError("Downloaded file not found")
@@ -344,6 +376,29 @@ class Updater:
             pass
         return False
 
+    def _consume_launch_info(self) -> None:
+        self.launch_target_path = ""
+        self.launch_final_path = ""
+        try:
+            marker = self._update_dir() / "launch-info.txt"
+            if not marker.exists():
+                return
+
+            payload = marker.read_text(encoding="utf-8", errors="replace")
+            try:
+                marker.unlink()
+            except OSError:
+                pass
+
+            for raw_line in payload.splitlines():
+                line = raw_line.strip()
+                if line.startswith("RUN_TARGET="):
+                    self.launch_target_path = line.split("=", 1)[1].strip()
+                elif line.startswith("FINAL="):
+                    self.launch_final_path = line.split("=", 1)[1].strip()
+        except OSError:
+            return
+
     def _cleanup_runtime_leftovers(self) -> None:
         try:
             update_dir = self._update_dir()
@@ -382,6 +437,7 @@ class Updater:
             flag_file = update_dir / "applied.flag"
             log_file = update_dir / "update.log"
             ready_file = update_dir / f"ready-{int(current_pid)}.flag"
+            launch_info_file = update_dir / "launch-info.txt"
 
             script_template = """@echo off
 setlocal enableextensions
@@ -392,6 +448,7 @@ set "FINAL=@@FINAL_EXE@@"
 set "FLAG=@@FLAG_FILE@@"
 set "LOG=@@LOG_FILE@@"
 set "READY=@@READY_FILE@@"
+set "LAUNCH_INFO=@@LAUNCH_INFO_FILE@@"
 set "RUN_TARGET="
 
 set "PYINSTALLER_RESET_ENVIRONMENT=1"
@@ -420,7 +477,7 @@ if not exist "%DOWNLOADED%" (
 set "RUN_TARGET=%DOWNLOADED%"
 
 if /I not "%DOWNLOADED%"=="%FINAL%" (
-  copy /Y /B "%DOWNLOADED%" "%FINAL%" >NUL
+  call :copy_with_retry "%DOWNLOADED%" "%FINAL%"
   if errorlevel 1 (
     call :log Copy to final location failed, fallback to staged executable
   ) else (
@@ -451,6 +508,10 @@ if errorlevel 1 (
 )
 
 if exist "%READY%" (
+  >"%LAUNCH_INFO%" (
+    echo RUN_TARGET=%RUN_TARGET%
+    echo FINAL=%FINAL%
+  )
   echo 1>"%FLAG%"
 ) else (
   call :log Ready flag was not received
@@ -485,6 +546,18 @@ for /L %%R in (1,1,20) do (
   timeout /t 1 /nobreak >NUL
 )
 exit /b 1
+
+:copy_with_retry
+set "SRC=%~1"
+set "DST=%~2"
+if "%SRC%"=="" exit /b 1
+if "%DST%"=="" exit /b 1
+for /L %%C in (1,1,8) do (
+  copy /Y /B "%SRC%" "%DST%" >NUL
+  if not errorlevel 1 exit /b 0
+  timeout /t 1 /nobreak >NUL
+)
+exit /b 1
 """
 
             script = (
@@ -496,6 +569,7 @@ exit /b 1
                 .replace("@@FLAG_FILE@@", str(flag_file))
                 .replace("@@LOG_FILE@@", str(log_file))
                 .replace("@@READY_FILE@@", str(ready_file))
+                .replace("@@LAUNCH_INFO_FILE@@", str(launch_info_file))
             )
             script_path.write_text(script, encoding="cp866", errors="ignore")
 
