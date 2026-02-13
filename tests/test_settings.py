@@ -41,6 +41,25 @@ class SettingsTests(unittest.TestCase):
                 self.assertTrue(config_file.exists())
                 self.assertEqual(settings.language, "RU")
 
+    def test_new_options_are_normalized(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            with patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False):
+                settings = Settings()
+                settings.set_many(
+                    {
+                        "clear_sound": "INVALID",
+                        "overflow_notify_threshold_gb": 99999,
+                        "overflow_notify_enabled": "yes",
+                        "theme_sync": "",
+                    }
+                )
+
+                reloaded = Settings()
+                self.assertEqual(reloaded.clear_sound, "off")
+                self.assertEqual(reloaded.overflow_notify_threshold_gb, 1024)
+                self.assertTrue(reloaded.overflow_notify_enabled)
+                self.assertFalse(reloaded.theme_sync)
+
 
 if __name__ == "__main__":
     unittest.main()

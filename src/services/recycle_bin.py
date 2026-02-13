@@ -25,6 +25,19 @@ class RecycleBinInfo:
 
 
 class RecycleBinService:
+    SIZE_THRESHOLDS_BYTES = (
+        256 * 1024 * 1024,        # 256 MB
+        int(1.5 * 1024**3),       # 1.5 GB
+        4 * 1024**3,              # 4 GB
+        8 * 1024**3,              # 8 GB
+    )
+    ITEM_THRESHOLDS = (
+        25,
+        250,
+        1000,
+        2000,
+    )
+
     @staticmethod
     def get_info() -> RecycleBinInfo:
         try:
@@ -42,18 +55,28 @@ class RecycleBinService:
         return cls.get_info().size_bytes
 
     @classmethod
+    def _score_by_thresholds(cls, value: int, thresholds: tuple[int, ...]) -> int:
+        score = 0
+        for threshold in thresholds:
+            if value >= threshold:
+                score += 1
+        return min(score, 4)
+
+    @classmethod
+    def level_from_metrics(cls, size_bytes: int, items: int) -> int:
+        size = max(0, int(size_bytes))
+        item_count = max(0, int(items))
+        if size <= 0 and item_count <= 0:
+            return 0
+
+        size_score = cls._score_by_thresholds(size, cls.SIZE_THRESHOLDS_BYTES)
+        item_score = cls._score_by_thresholds(item_count, cls.ITEM_THRESHOLDS)
+        return max(size_score, item_score)
+
+    @classmethod
     def get_level(cls) -> int:
         info = cls.get_info()
-        size = info.size_bytes
-        if size <= 0 and info.items <= 0:
-            return 0
-        if size < 1 << 30:
-            return 1
-        if size < 2 << 30:
-            return 2
-        if size < 4 << 30:
-            return 3
-        return 4
+        return cls.level_from_metrics(info.size_bytes, info.items)
 
     @staticmethod
     def empty_bin() -> bool:

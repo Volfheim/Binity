@@ -13,6 +13,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "confirm_clear": True,
     "double_click_action": "open",
     "update_interval_sec": 10,
+    "clear_sound": "off",
+    "overflow_notify_enabled": True,
+    "overflow_notify_threshold_gb": 15,
+    "theme_sync": True,
 }
 
 LEGACY_REG_KEY = r"Software\Binity"
@@ -63,6 +67,21 @@ class Settings:
         except Exception:
             interval = 10
         self.values["update_interval_sec"] = max(3, min(interval, 120))
+
+        sound_mode = str(self.values.get("clear_sound", "off")).lower()
+        if sound_mode not in ("off", "windows", "paper"):
+            sound_mode = "off"
+        self.values["clear_sound"] = sound_mode
+
+        self.values["overflow_notify_enabled"] = bool(self.values.get("overflow_notify_enabled", True))
+
+        try:
+            overflow_threshold = int(self.values.get("overflow_notify_threshold_gb", 15))
+        except Exception:
+            overflow_threshold = 15
+        self.values["overflow_notify_threshold_gb"] = max(1, min(overflow_threshold, 1024))
+
+        self.values["theme_sync"] = bool(self.values.get("theme_sync", True))
 
     def _import_legacy_registry_values(self) -> None:
         if os.name != "nt":
@@ -137,3 +156,24 @@ class Settings:
         except Exception:
             interval = 10
         return max(3, min(interval, 120))
+
+    @property
+    def clear_sound(self) -> str:
+        sound_mode = str(self.get("clear_sound", "off")).lower()
+        return sound_mode if sound_mode in ("off", "windows", "paper") else "off"
+
+    @property
+    def overflow_notify_enabled(self) -> bool:
+        return bool(self.get("overflow_notify_enabled", True))
+
+    @property
+    def overflow_notify_threshold_gb(self) -> int:
+        try:
+            value = int(self.get("overflow_notify_threshold_gb", 15))
+        except Exception:
+            value = 15
+        return max(1, min(value, 1024))
+
+    @property
+    def theme_sync(self) -> bool:
+        return bool(self.get("theme_sync", True))

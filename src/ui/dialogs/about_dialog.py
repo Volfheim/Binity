@@ -6,72 +6,22 @@ from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QToolButton, QVBoxLayo
 
 from src.core.i18n import I18n
 from src.core.resources import resource_path
-from src.version import __app_name__, __author__, __version__, __description__
+from src.services.system_theme import THEME_DARK, THEME_LIGHT
+from src.version import __app_name__, __author__, __description__, __version__
 
 
 REPO_URL = "https://github.com/Volfheim/Binity"
 
 
 class AboutDialog(QDialog):
-    def __init__(self, i18n: I18n, parent=None) -> None:
+    def __init__(self, i18n: I18n, theme: str = THEME_DARK, parent=None) -> None:
         super().__init__(parent)
         self.i18n = i18n
+        self.theme = THEME_DARK
 
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setModal(False)
         self.setFixedSize(360, 520)
-        self.setStyleSheet(
-            """
-            QDialog {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #111827,
-                    stop:1 #0b1220);
-                color: #f8fafc;
-                border: 1px solid #23314f;
-                border-radius: 14px;
-            }
-            QLabel#title {
-                font-size: 26px;
-                font-weight: 800;
-                color: #f8fafc;
-            }
-            QLabel#subtitle {
-                font-size: 12px;
-                color: #8aa3d8;
-                font-weight: 600;
-            }
-            QLabel#meta {
-                font-size: 13px;
-                color: #d1d5db;
-            }
-            QLabel#githubHint {
-                font-size: 11px;
-                color: #8aa3d8;
-            }
-            QToolButton#githubBtn {
-                background: rgba(30, 58, 138, 0.24);
-                border: 1px solid #34538a;
-                border-radius: 24px;
-                padding: 10px;
-            }
-            QToolButton#githubBtn:hover {
-                background: rgba(59, 130, 246, 0.35);
-                border: 1px solid #4f7fd8;
-            }
-            QPushButton#closeBtn {
-                background: transparent;
-                border: 1px solid #334155;
-                border-radius: 10px;
-                color: #cbd5e1;
-                padding: 9px 22px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton#closeBtn:hover {
-                background: #1e293b;
-            }
-            """
-        )
 
         icon_path = resource_path("icons/bin_full.ico")
         self.setWindowIcon(QIcon(icon_path))
@@ -139,7 +89,135 @@ class AboutDialog(QDialog):
 
         self.root.addStretch(1)
 
+        self.set_theme(theme)
         self.refresh_texts()
+
+
+    def set_theme(self, theme: str) -> None:
+        candidate = str(theme or THEME_DARK).lower()
+        if candidate not in (THEME_DARK, THEME_LIGHT):
+            candidate = THEME_DARK
+        self.theme = candidate
+
+        # Update GitHub icon based on theme
+        if candidate == THEME_LIGHT:
+            icon_name = "icons/github_dark.svg"
+            btn_style = """
+                QToolButton#githubBtn {
+                    background: rgba(59, 130, 246, 0.12);
+                    border: 1px solid #8fb2ef;
+                    border-radius: 24px;
+                    padding: 10px;
+                }
+                QToolButton#githubBtn:hover {
+                    background: rgba(59, 130, 246, 0.24);
+                    border: 1px solid #5e8ee0;
+                }
+            """
+            dialog_style = """
+                QDialog {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #f7f9fc,
+                        stop:1 #eef2f8);
+                    color: #0f172a;
+                    border: 1px solid #d5deea;
+                    border-radius: 14px;
+                }
+                QLabel#title {
+                    font-size: 26px;
+                    font-weight: 800;
+                    color: #0f172a;
+                }
+                QLabel#subtitle {
+                    font-size: 12px;
+                    color: #3b4f72;
+                    font-weight: 600;
+                }
+                QLabel#meta {
+                    font-size: 13px;
+                    color: #1f2937;
+                }
+                QLabel#githubHint {
+                    font-size: 11px;
+                    color: #334155;
+                }
+                QPushButton#closeBtn {
+                    background: transparent;
+                    border: 1px solid #94a3b8;
+                    border-radius: 10px;
+                    color: #1e293b;
+                    padding: 9px 22px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QPushButton#closeBtn:hover {
+                    background: #e2e8f0;
+                }
+            """
+        else:
+            icon_name = "icons/github.svg"
+            btn_style = """
+                QToolButton#githubBtn {
+                    background: rgba(30, 58, 138, 0.24);
+                    border: 1px solid #34538a;
+                    border-radius: 24px;
+                    padding: 10px;
+                }
+                QToolButton#githubBtn:hover {
+                    background: rgba(59, 130, 246, 0.35);
+                    border: 1px solid #4f7fd8;
+                }
+            """
+            dialog_style = """
+                QDialog {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #111827,
+                        stop:1 #0b1220);
+                    color: #f8fafc;
+                    border: 1px solid #23314f;
+                    border-radius: 14px;
+                }
+                QLabel#title {
+                    font-size: 26px;
+                    font-weight: 800;
+                    color: #f8fafc;
+                }
+                QLabel#subtitle {
+                    font-size: 12px;
+                    color: #8aa3d8;
+                    font-weight: 600;
+                }
+                QLabel#meta {
+                    font-size: 13px;
+                    color: #d1d5db;
+                }
+                QLabel#githubHint {
+                    font-size: 11px;
+                    color: #8aa3d8;
+                }
+                QPushButton#closeBtn {
+                    background: transparent;
+                    border: 1px solid #334155;
+                    border-radius: 10px;
+                    color: #cbd5e1;
+                    padding: 9px 22px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+                QPushButton#closeBtn:hover {
+                    background: #1e293b;
+                }
+            """
+
+        # Apply Icon
+        icon_obj = QIcon(resource_path(icon_name))
+        if not icon_obj.isNull():
+            self.github_btn.setIcon(icon_obj)
+        else:
+            self.github_btn.setText("GH")
+
+        # Combine and apply styles
+        self.setStyleSheet(dialog_style + btn_style)
 
     def refresh_texts(self) -> None:
         self.setWindowTitle(self.i18n.tr("about_title"))
@@ -148,3 +226,4 @@ class AboutDialog(QDialog):
         self.github_btn.setToolTip(self.i18n.tr("website"))
         self.github_hint.setText("GitHub")
         self.close_btn.setText(self.i18n.tr("close"))
+

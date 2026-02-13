@@ -9,29 +9,29 @@ import time
 
 # --- CONFIGURATION ---
 REPO = "Volfheim/Binity"
-BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-data "icons;icons" --name "Binity" main.py'
+BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-data "icons;icons" --add-data "sounds;sounds" --name "Binity" main.py'
 
 RELEASES = [
     {
-        "tag": "v3.0.1",
-        "prev": "v3.0.0",
-        "name": "Binity v3.0.1",
-        "body": """## 🛡️ Stability Update (v3.0.1)
-Important stability and quality-of-life update.
+        "tag": "v3.1.1",
+        "prev": "v3.0.1",
+        "name": "Binity v3.1.1",
+        "body": """## 🔊 Audio & Theme Update (v3.1.1)
+Major experience upgrade with audio feedback, theme synchronization, and smarter bin monitoring.
 
-### 🛡️ Core Improvements
-- **Async Operations**: Recycle bin clearing is now non-blocking (background thread).
-- **Autostart**: Enhanced validation and cleanup of legacy startup scripts.
-- **Performance**: Removed logging overhead for cleaner runtime.
-- **Settings**: Atomic saving prevents config corruption.
-- **Error Handling**: Corrupted settings files are now safely backed up to `.broken.json`.
+### 🆕 New Features
+- **🔊 Sound Feedback**: Satisfying "paper crumple" sound played upon successful bin clearing (with system beep fallback).
+- **🌗 Theme Sync**: Automatically detects Windows theme (Dark/Light) and adapts the UI instantly.
+- **📊 Hybrid Monitoring**: Smart bin level calculation based on both file count and total size.
+- **💬 Toast Notifications**: Native Windows notifications for bin overflow warnings and clearing confirmation.
 
-### 🎨 UI & UX
-- **About Window**: Redesigned functional layout with GitHub integration.
-- **Bug Fix**: Resolved issue with infinite confirmation dialogs.
+### 🛠️ Improvements
+- **UI Contrast**: Improved GitHub icon visibility in Light Theme.
+- **Fix**: Resolved duplicate confirmation dialogs.
+- **Tests**: Added comprehensive test suite for new logic.
 
 ### 📝 Notes
-- Recommended update for all users.
+- Includes all stability fixes from v3.0.1.
 """
     }
 ]
@@ -101,12 +101,6 @@ def build_exe():
     return None
 
 def process_releases():
-    # Force tag update logic
-    # We are already on the right commit hash when we run this usually, or main.
-    # The user wants to FORCE push the tag v3.0.1 to point to the NEW commit we are about to make.
-    # But this script runs AFTER the commit/push flow usually.
-    # So here we just focus on release creation.
-    
     subprocess.call("git checkout main", shell=True)
     
     for release_info in RELEASES:
@@ -117,9 +111,9 @@ def process_releases():
         body = release_info["body"]
         if prev:
             link = f"https://github.com/{REPO}/compare/{prev}...{tag}"
-            body += f"\n**Full Changelog**: {link}"
+            body += f"\n\n**Full Changelog**: {link}"
 
-        # 1. DELETE EXISTING RELEASE
+        # 1. DELETE EXISTING RELEASE (if any, for idempotency)
         try:
             existing = request(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")
             print(f"  Deleting existing release {existing['id']}...")
@@ -127,13 +121,8 @@ def process_releases():
         except urllib.error.HTTPError as e:
             if e.code != 404: print(f"  Error checking release: {e}")
 
-        # 2. CHECKOUT TAG (Ensure local tag is up to date with remote or current HEAD if we just pushed it)
-        # Since we are doing a force push flow manually before this script, we can assume 'git checkout tag' works 
-        # IF we fetched or if we created it locally. 
-        # Actually, simpler to just start from main if we pushed main.
-        # But 'build_exe' relies on being on the right commit.
-        # Let's assume the user (me) runs the git commands before this script.
-        subprocess.check_call(f"git checkout {tag}", shell=True)
+        # 2. TAGGING IS ASSUMED DONE OR WE ARE ON HEAD
+        # For this workflow, we will build from CURRENT HEAD which should be tagged.
         
         # 3. BUILD EXE
         exe_path = build_exe()

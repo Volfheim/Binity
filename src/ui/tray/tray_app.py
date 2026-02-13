@@ -13,6 +13,8 @@ from src.core.resources import resource_path
 from src.core.settings import Settings
 from src.services.autostart import AutostartService
 from src.services.recycle_bin import RecycleBinService
+from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_WINDOWS, SoundService
+from src.services.system_theme import SystemThemeService
 from src.ui.dialogs.about_dialog import AboutDialog
 from src.ui.dialogs.confirm_dialog import ConfirmDialog
 
@@ -51,8 +53,11 @@ class TrayApp(QObject):
 
         self.recycle_bin = RecycleBinService()
         self.autostart = AutostartService()
+        self.sound_service = SoundService()
+        self.theme_service = SystemThemeService()
 
-        self.icons = self._load_icons()
+        self.current_theme = self.theme_service.get_theme()
+        self.icons = self._load_icons(self.current_theme)
         self.current_level = -1
 
         self.tray = QSystemTrayIcon(self)
@@ -62,6 +67,7 @@ class TrayApp(QObject):
         self._confirm_dialog: ConfirmDialog | None = None
         self._clear_in_progress = False
         self._clear_task: _ClearBinTask | None = None
+        self._overflow_notified = False
         self._thread_pool = QThreadPool.globalInstance()
 
         self._build_menu()
@@ -75,12 +81,19 @@ class TrayApp(QObject):
         self.timer.timeout.connect(self._refresh_state)
         self.timer.start(self.settings.update_interval_sec * 1000)
 
-    def _load_icons(self) -> Dict[int, QIcon]:
+    def _theme_icon_path(self, relative_path: str, theme: str) -> str:
+        filename = Path(relative_path).name
+        themed_path = resource_path(f"icons/{theme}/{filename}")
+        if Path(themed_path).exists():
+            return themed_path
+        return resource_path(relative_path)
+
+    def _load_icons(self, theme: str) -> Dict[int, QIcon]:
         icons: Dict[int, QIcon] = {}
         for level, relative_path in ICON_MAP.items():
-            full_path = Path(resource_path(relative_path))
-            if full_path.exists():
-                icons[level] = QIcon(str(full_path))
+            candidate = self._theme_icon_path(relative_path, theme)
+            if Path(candidate).exists():
+                icons[level] = QIcon(str(candidate))
 
         fallback = icons.get(0) or icons.get(4)
         if fallback is None:
@@ -155,6 +168,41 @@ class TrayApp(QObject):
         self.autostart_action.toggled.connect(self._on_autostart_toggled)
         self.settings_menu.addAction(self.autostart_action)
 
+        self.sound_menu = QMenu(self.settings_menu)
+        self.sound_group = QActionGroup(self.sound_menu)
+        self.sound_group.setExclusive(True)
+
+        self.sound_off_action = QAction(self.sound_menu)
+        self.sound_off_action.setCheckable(True)
+        self.sound_off_action.triggered.connect(lambda: self._set_clear_sound(SOUND_OFF))
+
+        self.sound_windows_action = QAction(self.sound_menu)
+        self.sound_windows_action.setCheckable(True)
+        self.sound_windows_action.triggered.connect(lambda: self._set_clear_sound(SOUND_WINDOWS))
+
+        self.sound_paper_action = QAction(self.sound_menu)
+        self.sound_paper_action.setCheckable(True)
+        self.sound_paper_action.triggered.connect(lambda: self._set_clear_sound(SOUND_PAPER))
+
+        self.sound_group.addAction(self.sound_off_action)
+        self.sound_group.addAction(self.sound_windows_action)
+        self.sound_group.addAction(self.sound_paper_action)
+
+        self.sound_menu.addAction(self.sound_off_action)
+        self.sound_menu.addAction(self.sound_windows_action)
+        self.sound_menu.addAction(self.sound_paper_action)
+        self.settings_menu.addMenu(self.sound_menu)
+
+        self.overflow_notify_action = QAction(self.settings_menu)
+        self.overflow_notify_action.setCheckable(True)
+        self.overflow_notify_action.toggled.connect(self._on_overflow_notify_toggled)
+        self.settings_menu.addAction(self.overflow_notify_action)
+
+        self.theme_sync_action = QAction(self.settings_menu)
+        self.theme_sync_action.setCheckable(True)
+        self.theme_sync_action.toggled.connect(self._on_theme_sync_toggled)
+        self.settings_menu.addAction(self.theme_sync_action)
+
         self.menu.addMenu(self.settings_menu)
         self.menu.addSeparator()
 
@@ -185,6 +233,19 @@ class TrayApp(QObject):
         self.autostart_action.setChecked(self.autostart.is_enabled())
         self.autostart_action.blockSignals(False)
 
+        sound_mode = self.settings.clear_sound
+        self.sound_off_action.setChecked(sound_mode == SOUND_OFF)
+        self.sound_windows_action.setChecked(sound_mode == SOUND_WINDOWS)
+        self.sound_paper_action.setChecked(sound_mode == SOUND_PAPER)
+
+        self.overflow_notify_action.blockSignals(True)
+        self.overflow_notify_action.setChecked(self.settings.overflow_notify_enabled)
+        self.overflow_notify_action.blockSignals(False)
+
+        self.theme_sync_action.blockSignals(True)
+        self.theme_sync_action.setChecked(self.settings.theme_sync)
+        self.theme_sync_action.blockSignals(False)
+
     def _update_texts(self) -> None:
         self.open_action.setText(self.i18n.tr("open_bin"))
         self.clear_action.setText(self.i18n.tr("clear_bin"))
@@ -201,6 +262,15 @@ class TrayApp(QObject):
         self.language_en_action.setText(self.i18n.tr("language_en"))
 
         self.autostart_action.setText(self.i18n.tr("autostart"))
+
+        self.sound_menu.setTitle(self.i18n.tr("sound_after_clear"))
+        self.sound_off_action.setText(self.i18n.tr("sound_off"))
+        self.sound_windows_action.setText(self.i18n.tr("sound_windows"))
+        self.sound_paper_action.setText(self.i18n.tr("sound_paper"))
+
+        self.overflow_notify_action.setText(self.i18n.tr("overflow_notify"))
+        self.theme_sync_action.setText(self.i18n.tr("theme_sync"))
+
         self.about_action.setText(self.i18n.tr("about"))
         self.exit_action.setText(self.i18n.tr("exit"))
 
@@ -209,19 +279,56 @@ class TrayApp(QObject):
         if self._confirm_dialog and self._confirm_dialog.isVisible():
             self._confirm_dialog.refresh_texts()
 
+    def _sync_system_theme(self) -> None:
+        if not self.settings.theme_sync:
+            return
+
+        detected_theme = self.theme_service.get_theme()
+        if detected_theme == self.current_theme:
+            return
+
+        self.current_theme = detected_theme
+        self.icons = self._load_icons(self.current_theme)
+        self.current_level = -1
+
+        if self._about_dialog and self._about_dialog.isVisible():
+            self._about_dialog.set_theme(self.current_theme)
+
+    def _handle_overflow_notification(self, size_bytes: int) -> None:
+        if not self.settings.overflow_notify_enabled:
+            self._overflow_notified = False
+            return
+
+        threshold = self.settings.overflow_notify_threshold_gb * 1024**3
+        if size_bytes >= threshold:
+            if not self._overflow_notified:
+                self._overflow_notified = True
+                self.tray.showMessage(
+                    self.i18n.tr("overflow_title"),
+                    self.i18n.tr("overflow_message").format(size=format_size(size_bytes)),
+                    QSystemTrayIcon.MessageIcon.Warning,
+                    5000,
+                )
+        else:
+            self._overflow_notified = False
+
     def _refresh_state(self) -> None:
-        level = self.recycle_bin.get_level()
+        self._sync_system_theme()
+
+        info = self.recycle_bin.get_info()
+        level = self.recycle_bin.level_from_metrics(info.size_bytes, info.items)
         if level != self.current_level:
             self.current_level = level
             self.tray.setIcon(self.icons.get(level, self.icons[0]))
 
-        size = self.recycle_bin.get_size_bytes()
-        tooltip = self.i18n.tr("tooltip_template").format(size=format_size(size))
+        tooltip = self.i18n.tr("tooltip_template").format(size=format_size(info.size_bytes))
         self.tray.setToolTip(tooltip)
 
         self.autostart_action.blockSignals(True)
         self.autostart_action.setChecked(self.autostart.is_enabled())
         self.autostart_action.blockSignals(False)
+
+        self._handle_overflow_notification(info.size_bytes)
 
     def _on_confirm_toggled(self, enabled: bool) -> None:
         self.settings.set("confirm_clear", bool(enabled))
@@ -231,6 +338,22 @@ class TrayApp(QObject):
             return
         self.settings.set("double_click_action", action)
         self._apply_menu_state()
+
+    def _set_clear_sound(self, mode: str) -> None:
+        if mode not in (SOUND_OFF, SOUND_WINDOWS, SOUND_PAPER):
+            return
+        self.settings.set("clear_sound", mode)
+        self._apply_menu_state()
+
+    def _on_overflow_notify_toggled(self, enabled: bool) -> None:
+        self.settings.set("overflow_notify_enabled", bool(enabled))
+        if not enabled:
+            self._overflow_notified = False
+
+    def _on_theme_sync_toggled(self, enabled: bool) -> None:
+        self.settings.set("theme_sync", bool(enabled))
+        if enabled:
+            self._sync_system_theme()
 
     def _set_language(self, language: str) -> None:
         self.settings.set("language", language)
@@ -242,7 +365,7 @@ class TrayApp(QObject):
     def _on_autostart_toggled(self, enabled: bool) -> None:
         success = self.autostart.set_enabled(bool(enabled))
         if not success:
-            self._show_error(self.i18n.tr("error_title"), self.i18n.tr("autostart_disabled"))
+            self._show_error(self.i18n.tr("autostart_disabled"))
             self._apply_menu_state()
             return
 
@@ -259,7 +382,7 @@ class TrayApp(QObject):
 
     def open_bin(self) -> None:
         if not self.recycle_bin.open_bin():
-            self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_open_failed"))
+            self._show_error(self.i18n.tr("error_open_failed"))
 
     def clear_bin(self) -> None:
         if self._clear_in_progress:
@@ -296,15 +419,23 @@ class TrayApp(QObject):
         self._clear_task = None
 
         if not success:
-            self._show_error(self.i18n.tr("error_title"), self.i18n.tr("error_empty_failed"))
+            self._show_error(self.i18n.tr("error_empty_failed"))
             return
 
+        self.sound_service.play_clear_success(self.settings.clear_sound)
+        self.tray.showMessage(
+            self.i18n.tr("app_name"),
+            self.i18n.tr("clear_success_message"),
+            QSystemTrayIcon.MessageIcon.Information,
+            2200,
+        )
         self._refresh_state()
 
     def show_about(self) -> None:
         if self._about_dialog is None:
-            self._about_dialog = AboutDialog(self.i18n)
+            self._about_dialog = AboutDialog(self.i18n, theme=self.current_theme)
 
+        self._about_dialog.set_theme(self.current_theme)
         self._about_dialog.refresh_texts()
         self._about_dialog.show()
         self._about_dialog.raise_()
@@ -319,9 +450,9 @@ class TrayApp(QObject):
         if app is not None:
             app.quit()
 
-    @staticmethod
-    def _show_error(title: str, message: str) -> None:
-        QMessageBox.warning(None, title, message)
+    def _show_error(self, message: str) -> None:
+        self.tray.showMessage(self.i18n.tr("error_title"), message, QSystemTrayIcon.MessageIcon.Warning, 3500)
+        QMessageBox.warning(None, self.i18n.tr("error_title"), message)
 
     @staticmethod
     def _focus_dialog(dialog: QDialog) -> None:
