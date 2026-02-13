@@ -74,6 +74,11 @@ def request(url, method="GET", data=None, content_type="application/json"):
         raise
 
 def build_exe():
+    exe_path = os.path.join("dist", "Binity.exe")
+    if os.path.exists(exe_path):
+        print("  Found existing Binity.exe, skipping build...")
+        return exe_path
+
     print("  Building EXE...")
     
     for _ in range(3):
