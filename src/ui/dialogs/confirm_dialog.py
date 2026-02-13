@@ -39,6 +39,7 @@ class ConfirmDialog(QDialog):
             QPushButton#confirmBtn:hover { background: #dc2626; }
             QPushButton#cancelBtn { background: transparent; color: #cbd5e1; border: 1px solid #475569; }
             QPushButton#cancelBtn:hover { background: #1e293b; }
+            QPushButton:focus { border: 1px solid #60a5fa; }
             """
         )
 
@@ -65,6 +66,7 @@ class ConfirmDialog(QDialog):
         self.confirm_btn = QPushButton()
         self.confirm_btn.setObjectName("confirmBtn")
         self.confirm_btn.clicked.connect(self.accept)
+        self.confirm_btn.setDefault(True)
         buttons.addWidget(self.confirm_btn)
 
         root.addLayout(buttons)

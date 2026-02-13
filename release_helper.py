@@ -13,6 +13,18 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.4",
+        "prev": "v3.3.3",
+        "name": "Binity v3.3.4",
+        "body": """## ⌨️ UX Improvements (v3.3.4)
+Better keyboard navigation and text formatting.
+
+### ✨ Features
+- **UX**: Pressing Enter in the "Confirm Clear" dialog now confirms the action (focus is on "Clear" button).
+- **UI**: Improved release notes formatting (better Markdown stripping).
+"""
+    },
+    {
         "tag": "v3.3.3",
         "prev": "v3.3.2",
         "name": "Binity v3.3.3",

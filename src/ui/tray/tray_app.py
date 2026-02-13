@@ -539,6 +539,11 @@ class TrayApp(QObject):
 
         normalized = "\n".join(lines)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+        # Final cleanup of any remaining markdown symbols
+        normalized = re.sub(r"\*\*(.*?)\*\*", r"\1", normalized)  # Bold
+        normalized = re.sub(r"__(.*?)__", r"\1", normalized)      # Bold
+        normalized = re.sub(r"\*(.*?)\*", r"\1", normalized)      # Italic
+        normalized = re.sub(r"_(.*?)_", r"\1", normalized)        # Italic
         return normalized or "-"
 
     def _show_post_update_notification(self) -> None:
