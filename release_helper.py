@@ -13,6 +13,17 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.5",
+        "prev": "v3.3.4",
+        "name": "Binity v3.3.5",
+        "body": """## 📐 UI Tweak (v3.3.5)
+More compact update dialog.
+
+### 🖼️ Changes
+- **UI**: Reduced the width of the update prompt to remove excess empty space.
+"""
+    },
+    {
         "tag": "v3.3.4",
         "prev": "v3.3.3",
         "name": "Binity v3.3.4",

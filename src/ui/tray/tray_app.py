@@ -843,10 +843,10 @@ class TrayApp(QObject):
         msg.setStyleSheet(
             """
             QLabel {
-                min-width: 380px;
+                min-width: 250px;
             }
             QTextEdit {
-                min-width: 400px;
+                min-width: 380px;
                 min-height: 200px;
             }
             """
