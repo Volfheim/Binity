@@ -87,7 +87,7 @@ def build_exe():
 
     if os.path.exists("Binity.spec"):
         print("    Using Binity.spec...")
-        cmd = "pyinstaller Binity.spec"
+        cmd = "pyinstaller --clean --noconfirm Binity.spec"
     else:
         print("    Using default command...")
         cmd = BUILD_CMD
