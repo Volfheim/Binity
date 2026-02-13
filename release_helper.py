@@ -124,7 +124,7 @@ def build_exe():
 def process_releases():
     subprocess.call("git checkout main", shell=True)
     
-    for release_info in RELEASES:
+    for release_info in RELEASES[:1]:
         tag = release_info["tag"]
         prev = release_info["prev"]
         print(f"\nProcessing {tag}...")
