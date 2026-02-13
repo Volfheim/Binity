@@ -74,7 +74,7 @@ class Settings:
         self.values["update_interval_sec"] = max(3, min(interval, 120))
 
         sound_mode = str(self.values.get("clear_sound", "paper")).lower()
-        if sound_mode not in ("off", "windows", "paper"):
+        if sound_mode not in ("off", "windows", "paper", "trash"):
             sound_mode = "off"
         self.values["clear_sound"] = sound_mode
 
