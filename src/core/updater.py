@@ -73,6 +73,7 @@ class Updater:
     def _should_check(self) -> bool:
         if self._just_updated:
             return False
+        # If frozen, we check. If not frozen, we only check if forced (handled in check_for_update)
         if not self.is_frozen():
             return False
         if not self.settings.get("auto_check_updates", True):

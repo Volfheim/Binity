@@ -13,28 +13,18 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.2.0",
-        "prev": "v3.1.0",
-        "name": "Binity v3.2.0",
-        "body": """## 🚀 Auto-Updater & Tray Improvements (v3.2.0)
-Major update introducing seamless in-app updates and refined tray experience.
+        "tag": "v3.2.1",
+        "prev": "v3.2.0",
+        "name": "Binity v3.2.1",
+        "body": """## 🛠️ UX Improvements (v3.2.1)
+Hotfix release improving the Auto-Updater user experience.
 
-### 🔥 New Features
-- **🔄 Auto-Updater**: Binity now checks for updates automatically and installs them in one click.
-  - Supports "Check now", "Skip version", and "Remind later".
-  - Secure validation of downloaded updates (Signature & Size check).
-  - Background downloading without freezing the UI.
-- **📋 Tray Menu**:
-  - Added "Check for updates" option.
-  - New settings for update preferences.
-
-### 🛠️ Fixes & improvements
-- **Git**: Fixed project metadata issues.
-- **I18n**: Added Russian/English translations for updater dialogs.
-- **Stability**: Improved error handling during network requests.
+### improvements
+- **User Feedback**: "Check for updates" now displays an immediate "Checking..." notification.
+- **Dialogs**: "No updates found" and errors are now shown in a dialog box instead of a transient notification, ensuring you don't miss the result.
 
 ### 📝 Notes
-- This version includes a self-updating mechanism that will make future updates much easier!
+- Release to ensure users have the best updater experience out-of-the-box.
 """
     }
 ]

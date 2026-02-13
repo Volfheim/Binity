@@ -548,6 +548,14 @@ class TrayApp(QObject):
         self._update_check_in_progress = True
         self.check_updates_action.setEnabled(False)
 
+        if manual:
+            self.tray.showMessage(
+                self.i18n.tr("app_name"),
+                self.i18n.tr("update_checking"),
+                QSystemTrayIcon.MessageIcon.Information,
+                2000,
+            )
+
         task = _UpdateCheckTask(self.updater, force=force, manual=manual)
         task.signals.finished.connect(self._on_update_check_finished)
         self._update_check_task = task
@@ -580,11 +588,10 @@ class TrayApp(QObject):
             return
 
         if manual:
-            self.tray.showMessage(
-                self.i18n.tr("app_name"),
+            QMessageBox.information(
+                None,
+                self.i18n.tr("update_dialog_title"),
                 self.i18n.tr("update_not_found"),
-                QSystemTrayIcon.MessageIcon.Information,
-                2500,
             )
 
     def _show_update_dialog(self) -> None:
