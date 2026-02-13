@@ -24,3 +24,7 @@ Desktop.ini
 
 # Local settings
 version.txt
+
+# Development / Testing
+tests/
+verify_sound.py
