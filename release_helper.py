@@ -13,6 +13,27 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.1",
+        "prev": "v3.3.0",
+        "name": "Binity v3.3.1",
+        "body": """## 🛠️ Updater Stability & UI Polish (v3.3.1)
+Update focused on making the auto-updater rock solid and improving visual consistency.
+
+### 🔄 Updater Improvements
+- **Robustness**: Updater script now has fallback mechanisms. If replacing the EXE fails (e.g. locked file), it runs from a staging area to ensure the app still launches.
+- **Fail-Safe**: New handshake system ensures the new version started successfully; otherwise, it reverts or retries.
+- **Visibility**: Added a progress bar dialog during download so you know what's happening.
+- **Logs**: Updater now writes to `update.log` in the local app data folder for easier troubleshooting.
+
+### 🎨 UI & Polish
+- **Icons**: Fixed missing icons in dialogs (e.g. "Already running", "Confirm Delete") to ensure no empty window headers.
+- **Release Notes**: Cleaned up the "What's New" text in the update dialog to remove raw Markdown symbols (###, **) for a cleaner look.
+
+### 📝 Notes
+- This release ensures seamless updates for future versions.
+"""
+    },
+    {
         "tag": "v3.3.0",
         "prev": "v3.2.1",
         "name": "Binity v3.3.0",

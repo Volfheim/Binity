@@ -348,7 +348,7 @@ class Updater:
         try:
             update_dir = self._update_dir()
             if update_dir.exists():
-                for pattern in ("next-*.exe", "*.tmp", "*.old"):
+                for pattern in ("next-*.exe", "ready-*.flag", "*.tmp", "*.old"):
                     for path in update_dir.glob(pattern):
                         try:
                             path.unlink()
@@ -380,6 +380,8 @@ class Updater:
 
             script_path = update_dir / "_binity-update.cmd"
             flag_file = update_dir / "applied.flag"
+            log_file = update_dir / "update.log"
+            ready_file = update_dir / f"ready-{int(current_pid)}.flag"
 
             script_template = """@echo off
 setlocal enableextensions
@@ -388,6 +390,9 @@ set "CURRENT=@@CURRENT_EXE@@"
 set "DOWNLOADED=@@DOWNLOADED_EXE@@"
 set "FINAL=@@FINAL_EXE@@"
 set "FLAG=@@FLAG_FILE@@"
+set "LOG=@@LOG_FILE@@"
+set "READY=@@READY_FILE@@"
+set "RUN_TARGET="
 
 set "PYINSTALLER_RESET_ENVIRONMENT=1"
 set "_MEIPASS2="
@@ -395,6 +400,8 @@ set "_PYI_APPLICATION_HOME_DIR="
 set "_PYI_ARCHIVE_FILE="
 set "_PYI_PARENT_PROCESS_LEVEL="
 set "_PYI_SPLASH_IPC="
+
+call :log Updater started
 
 for /L %%A in (1,1,25) do (
   tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
@@ -405,24 +412,79 @@ taskkill /PID %PID% /F >NUL 2>&1
 timeout /t 1 /nobreak >NUL
 
 :wait_done
-if not exist "%DOWNLOADED%" goto cleanup
+if not exist "%DOWNLOADED%" (
+  call :log Downloaded file not found
+  goto cleanup
+)
+
+set "RUN_TARGET=%DOWNLOADED%"
 
 if /I not "%DOWNLOADED%"=="%FINAL%" (
   copy /Y /B "%DOWNLOADED%" "%FINAL%" >NUL
-  if errorlevel 1 goto cleanup
+  if errorlevel 1 (
+    call :log Copy to final location failed, fallback to staged executable
+  ) else (
+    set "RUN_TARGET=%FINAL%"
+  )
+) else (
+  set "RUN_TARGET=%FINAL%"
 )
 
-start "" "%FINAL%" --show-after-update
-echo 1>"%FLAG%"
+if "%RUN_TARGET%"=="" (
+  call :log Empty run target
+  goto cleanup
+)
 
-if /I not "%DOWNLOADED%"=="%FINAL%" (
+if not exist "%RUN_TARGET%" (
+  call :log Run target does not exist: %RUN_TARGET%
+  goto cleanup
+)
+
+call :start_target "%RUN_TARGET%"
+if errorlevel 1 (
+  call :log First launch attempt failed
+  if /I not "%RUN_TARGET%"=="%DOWNLOADED%" if exist "%DOWNLOADED%" (
+    call :log Trying fallback launch from staged executable
+    set "RUN_TARGET=%DOWNLOADED%"
+    call :start_target "%DOWNLOADED%"
+  )
+)
+
+if exist "%READY%" (
+  echo 1>"%FLAG%"
+) else (
+  call :log Ready flag was not received
+)
+
+if /I "%RUN_TARGET%"=="%FINAL%" if /I not "%DOWNLOADED%"=="%FINAL%" (
   del /F /Q "%DOWNLOADED%" >NUL 2>&1
 )
+
+call :log Updater finished
 
 :cleanup
 (goto) 2>NUL & del "%~f0"
 endlocal
 exit /b 0
+
+:log
+set "MSG=%*"
+>>"%LOG%" echo [%date% %time%] %MSG%
+exit /b 0
+
+:start_target
+set "TARGET=%~1"
+if "%TARGET%"=="" exit /b 1
+if not exist "%TARGET%" exit /b 1
+if exist "%READY%" del /F /Q "%READY%" >NUL 2>&1
+
+call :log Starting: %TARGET%
+start "" "%TARGET%" --show-after-update --update-ready-flag "%READY%"
+for /L %%R in (1,1,20) do (
+  if exist "%READY%" exit /b 0
+  timeout /t 1 /nobreak >NUL
+)
+exit /b 1
 """
 
             script = (
@@ -432,6 +494,8 @@ exit /b 0
                 .replace("@@DOWNLOADED_EXE@@", str(downloaded_exe))
                 .replace("@@FINAL_EXE@@", str(final_exe))
                 .replace("@@FLAG_FILE@@", str(flag_file))
+                .replace("@@LOG_FILE@@", str(log_file))
+                .replace("@@READY_FILE@@", str(ready_file))
             )
             script_path.write_text(script, encoding="cp866", errors="ignore")
 

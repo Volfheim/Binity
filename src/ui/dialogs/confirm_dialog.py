@@ -1,9 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from src.core.i18n import I18n
+from src.core.resources import resource_path
 
 
 class ConfirmDialog(QDialog):
@@ -15,6 +17,14 @@ class ConfirmDialog(QDialog):
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setModal(True)
         self.setMinimumWidth(420)
+
+        app = QApplication.instance()
+        app_icon = app.windowIcon() if app else QIcon()
+        if app_icon.isNull():
+            app_icon = QIcon(resource_path("icons/bin_full.ico"))
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
+
         self.setStyleSheet(
             """
             QDialog { background: #171a23; color: #f3f4f6; }
