@@ -17,6 +17,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "overflow_notify_enabled": True,
     "overflow_notify_threshold_gb": 15,
     "theme_sync": True,
+    "secure_delete_mode": "off",
+    "secure_delete_info_ack": False,
     "auto_check_updates": True,
     "last_update_check": "",
     "skipped_update_version": "",
@@ -85,6 +87,12 @@ class Settings:
         self.values["overflow_notify_threshold_gb"] = max(1, min(overflow_threshold, 1024))
 
         self.values["theme_sync"] = bool(self.values.get("theme_sync", True))
+
+        secure_mode = str(self.values.get("secure_delete_mode", "off")).lower()
+        if secure_mode not in ("off", "zero", "random"):
+            secure_mode = "off"
+        self.values["secure_delete_mode"] = secure_mode
+        self.values["secure_delete_info_ack"] = bool(self.values.get("secure_delete_info_ack", False))
 
         self.values["auto_check_updates"] = bool(self.values.get("auto_check_updates", True))
 
@@ -199,6 +207,15 @@ class Settings:
     @property
     def auto_check_updates(self) -> bool:
         return bool(self.get("auto_check_updates", True))
+
+    @property
+    def secure_delete_mode(self) -> str:
+        mode = str(self.get("secure_delete_mode", "off")).lower()
+        return mode if mode in ("off", "zero", "random") else "off"
+
+    @property
+    def secure_delete_info_ack(self) -> bool:
+        return bool(self.get("secure_delete_info_ack", False))
 
     @property
     def last_update_check(self) -> str:

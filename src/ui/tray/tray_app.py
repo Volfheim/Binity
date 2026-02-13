@@ -13,7 +13,14 @@ from src.core.resources import resource_path
 from src.core.settings import Settings
 from src.core.updater import UpdateInfo, Updater
 from src.services.autostart import AutostartService
-from src.services.recycle_bin import RecycleBinService
+from src.services.recycle_bin import (
+    BinClearResult,
+    RecycleBinService,
+    SECURE_DELETE_MODES,
+    SECURE_DELETE_OFF,
+    SECURE_DELETE_RANDOM,
+    SECURE_DELETE_ZERO,
+)
 from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_WINDOWS, SoundService
 from src.services.system_theme import SystemThemeService
 from src.ui.dialogs.about_dialog import AboutDialog
@@ -33,18 +40,19 @@ ICON_MAP = {
 
 
 class _ClearBinTaskSignals(QObject):
-    finished = pyqtSignal(bool)
+    finished = pyqtSignal(object)
 
 
 class _ClearBinTask(QRunnable):
-    def __init__(self, recycle_bin: RecycleBinService) -> None:
+    def __init__(self, recycle_bin: RecycleBinService, secure_mode: str) -> None:
         super().__init__()
         self.recycle_bin = recycle_bin
+        self.secure_mode = secure_mode
         self.signals = _ClearBinTaskSignals()
 
     def run(self) -> None:
-        success = self.recycle_bin.empty_bin()
-        self.signals.finished.emit(success)
+        result = self.recycle_bin.empty_bin(self.secure_mode)
+        self.signals.finished.emit(result)
 
 
 class _UpdateCheckTaskSignals(QObject):
@@ -255,6 +263,42 @@ class TrayApp(QObject):
         self.sound_menu.addAction(self.sound_paper_action)
         self.settings_menu.addMenu(self.sound_menu)
 
+        self.secure_delete_menu = QMenu(self.settings_menu)
+        self.secure_delete_group = QActionGroup(self.secure_delete_menu)
+        self.secure_delete_group.setExclusive(True)
+
+        self.secure_delete_off_action = QAction(self.secure_delete_menu)
+        self.secure_delete_off_action.setCheckable(True)
+        self.secure_delete_off_action.triggered.connect(
+            lambda: self._set_secure_delete_mode(SECURE_DELETE_OFF)
+        )
+
+        self.secure_delete_zero_action = QAction(self.secure_delete_menu)
+        self.secure_delete_zero_action.setCheckable(True)
+        self.secure_delete_zero_action.triggered.connect(
+            lambda: self._set_secure_delete_mode(SECURE_DELETE_ZERO)
+        )
+
+        self.secure_delete_random_action = QAction(self.secure_delete_menu)
+        self.secure_delete_random_action.setCheckable(True)
+        self.secure_delete_random_action.triggered.connect(
+            lambda: self._set_secure_delete_mode(SECURE_DELETE_RANDOM)
+        )
+
+        self.secure_delete_group.addAction(self.secure_delete_off_action)
+        self.secure_delete_group.addAction(self.secure_delete_zero_action)
+        self.secure_delete_group.addAction(self.secure_delete_random_action)
+
+        self.secure_delete_menu.addAction(self.secure_delete_off_action)
+        self.secure_delete_menu.addAction(self.secure_delete_zero_action)
+        self.secure_delete_menu.addAction(self.secure_delete_random_action)
+        self.secure_delete_menu.addSeparator()
+
+        self.secure_delete_load_note_action = QAction(self.secure_delete_menu)
+        self.secure_delete_load_note_action.setEnabled(False)
+        self.secure_delete_menu.addAction(self.secure_delete_load_note_action)
+        self.settings_menu.addMenu(self.secure_delete_menu)
+
         self.overflow_notify_action = QAction(self.settings_menu)
         self.overflow_notify_action.setCheckable(True)
         self.overflow_notify_action.toggled.connect(self._on_overflow_notify_toggled)
@@ -315,6 +359,11 @@ class TrayApp(QObject):
         self.sound_windows_action.setChecked(sound_mode == SOUND_WINDOWS)
         self.sound_paper_action.setChecked(sound_mode == SOUND_PAPER)
 
+        secure_mode = self.settings.secure_delete_mode
+        self.secure_delete_off_action.setChecked(secure_mode == SECURE_DELETE_OFF)
+        self.secure_delete_zero_action.setChecked(secure_mode == SECURE_DELETE_ZERO)
+        self.secure_delete_random_action.setChecked(secure_mode == SECURE_DELETE_RANDOM)
+
         self.overflow_notify_action.blockSignals(True)
         self.overflow_notify_action.setChecked(self.settings.overflow_notify_enabled)
         self.overflow_notify_action.blockSignals(False)
@@ -348,6 +397,12 @@ class TrayApp(QObject):
         self.sound_off_action.setText(self.i18n.tr("sound_off"))
         self.sound_windows_action.setText(self.i18n.tr("sound_windows"))
         self.sound_paper_action.setText(self.i18n.tr("sound_paper"))
+
+        self.secure_delete_menu.setTitle(self.i18n.tr("secure_delete"))
+        self.secure_delete_off_action.setText(self.i18n.tr("secure_delete_off"))
+        self.secure_delete_zero_action.setText(self.i18n.tr("secure_delete_zero"))
+        self.secure_delete_random_action.setText(self.i18n.tr("secure_delete_random"))
+        self.secure_delete_load_note_action.setText(self.i18n.tr("secure_delete_load_note"))
 
         self.overflow_notify_action.setText(self.i18n.tr("overflow_notify"))
         self.theme_sync_action.setText(self.i18n.tr("theme_sync"))
@@ -445,6 +500,34 @@ class TrayApp(QObject):
         self.settings.set("clear_sound", mode)
         self._apply_menu_state()
 
+    def _set_secure_delete_mode(self, mode: str) -> None:
+        if mode not in SECURE_DELETE_MODES:
+            return
+
+        current_mode = self.settings.secure_delete_mode
+        if current_mode == mode:
+            self._apply_menu_state()
+            return
+
+        self.settings.set("secure_delete_mode", mode)
+        self._apply_menu_state()
+
+        if mode != SECURE_DELETE_OFF and not self.settings.secure_delete_info_ack:
+            QMessageBox.information(
+                None,
+                self.i18n.tr("secure_delete_info_title"),
+                self.i18n.tr("secure_delete_info_message"),
+            )
+            self.settings.set("secure_delete_info_ack", True)
+
+    def _build_confirm_message(self) -> str:
+        mode = self.settings.secure_delete_mode
+        if mode == SECURE_DELETE_ZERO:
+            return self.i18n.tr("confirm_dialog_message_secure_zero")
+        if mode == SECURE_DELETE_RANDOM:
+            return self.i18n.tr("confirm_dialog_message_secure_random")
+        return self.i18n.tr("confirm_dialog_message")
+
     def _on_overflow_notify_toggled(self, enabled: bool) -> None:
         self.settings.set("overflow_notify_enabled", bool(enabled))
         if not enabled:
@@ -498,42 +581,56 @@ class TrayApp(QObject):
                 self._focus_dialog(self._confirm_dialog)
                 return
 
-            self._confirm_dialog = ConfirmDialog(self.i18n)
+            self._confirm_dialog = ConfirmDialog(self.i18n, message_override=self._build_confirm_message())
             try:
                 if self._confirm_dialog.exec() != QDialog.DialogCode.Accepted:
                     return
             finally:
                 self._confirm_dialog = None
 
-        self._start_clear_task()
+        self._start_clear_task(self.settings.secure_delete_mode)
 
-    def _start_clear_task(self) -> None:
+    def _start_clear_task(self, secure_mode: str) -> None:
         self._clear_in_progress = True
         self.clear_action.setEnabled(False)
         self.double_click_clear_action.setEnabled(False)
 
-        task = _ClearBinTask(self.recycle_bin)
+        if secure_mode != SECURE_DELETE_OFF:
+            self.tray.showMessage(
+                self.i18n.tr("app_name"),
+                self.i18n.tr("secure_clear_started"),
+                QSystemTrayIcon.MessageIcon.Information,
+                2400,
+            )
+
+        task = _ClearBinTask(self.recycle_bin, secure_mode=secure_mode)
         task.signals.finished.connect(self._on_clear_task_finished)
         self._clear_task = task
         self._thread_pool.start(task)
 
-    def _on_clear_task_finished(self, success: bool) -> None:
+    def _on_clear_task_finished(self, result_obj: object) -> None:
         self._clear_in_progress = False
         self.clear_action.setEnabled(True)
         self.double_click_clear_action.setEnabled(True)
         self._clear_task = None
 
-        if not success:
+        result = result_obj if isinstance(result_obj, BinClearResult) else BinClearResult(False, SECURE_DELETE_OFF)
+        if not result.success:
             self._show_error(self.i18n.tr("error_empty_failed"))
             return
 
         self.sound_service.play_clear_success(self.settings.clear_sound)
-        self.tray.showMessage(
-            self.i18n.tr("app_name"),
-            self.i18n.tr("clear_success_message"),
-            QSystemTrayIcon.MessageIcon.Information,
-            2200,
-        )
+        if result.secure_mode == SECURE_DELETE_OFF:
+            message = self.i18n.tr("clear_success_message")
+        else:
+            message = self.i18n.tr("secure_clear_success_message").format(
+                files=result.wiped_files,
+                size=format_size(result.wiped_bytes),
+            )
+            if result.wipe_failures > 0:
+                message = f"{message}\n{self.i18n.tr('secure_clear_partial_message').format(failed=result.wipe_failures)}"
+
+        self.tray.showMessage(self.i18n.tr("app_name"), message, QSystemTrayIcon.MessageIcon.Information, 3500)
         self._refresh_state()
 
     def _schedule_auto_update_check(self) -> None:

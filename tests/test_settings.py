@@ -48,17 +48,27 @@ class SettingsTests(unittest.TestCase):
                 settings.set_many(
                     {
                         "clear_sound": "INVALID",
+                        "secure_delete_mode": "ALL_IN",
+                        "secure_delete_info_ack": "sure",
                         "overflow_notify_threshold_gb": 99999,
                         "overflow_notify_enabled": "yes",
                         "theme_sync": "",
+                        "auto_check_updates": "",
+                        "last_update_check": "not-a-date",
+                        "skipped_update_version": 321,
                     }
                 )
 
                 reloaded = Settings()
                 self.assertEqual(reloaded.clear_sound, "off")
+                self.assertEqual(reloaded.secure_delete_mode, "off")
+                self.assertTrue(reloaded.secure_delete_info_ack)
                 self.assertEqual(reloaded.overflow_notify_threshold_gb, 1024)
                 self.assertTrue(reloaded.overflow_notify_enabled)
                 self.assertFalse(reloaded.theme_sync)
+                self.assertFalse(reloaded.auto_check_updates)
+                self.assertEqual(reloaded.last_update_check, "")
+                self.assertEqual(reloaded.skipped_update_version, "321")
 
 
 if __name__ == "__main__":

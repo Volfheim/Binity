@@ -7,9 +7,10 @@ from src.core.i18n import I18n
 
 
 class ConfirmDialog(QDialog):
-    def __init__(self, i18n: I18n, parent=None) -> None:
+    def __init__(self, i18n: I18n, message_override: str | None = None, parent=None) -> None:
         super().__init__(parent)
         self.i18n = i18n
+        self._message_override = message_override
 
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setModal(True)
@@ -63,6 +64,6 @@ class ConfirmDialog(QDialog):
         title = self.i18n.tr("confirm_dialog_title")
         self.setWindowTitle(title)
         self.title_label.setText(title)
-        self.message_label.setText(self.i18n.tr("confirm_dialog_message"))
+        self.message_label.setText(self._message_override or self.i18n.tr("confirm_dialog_message"))
         self.cancel_btn.setText(self.i18n.tr("cancel"))
         self.confirm_btn.setText(self.i18n.tr("confirm"))

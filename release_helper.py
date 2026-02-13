@@ -13,18 +13,28 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.2.1",
-        "prev": "v3.2.0",
-        "name": "Binity v3.2.1",
-        "body": """## 🛠️ UX Improvements (v3.2.1)
-Hotfix release improving the Auto-Updater user experience.
+        "tag": "v3.3.0",
+        "prev": "v3.2.1",
+        "name": "Binity v3.3.0",
+        "body": """## 🛡️ Secure Delete (Best Effort) & UX (v3.3.0)
+Major update introducing privacy-focused deletion features and enhanced settings.
 
-### improvements
-- **User Feedback**: "Check for updates" now displays an immediate "Checking..." notification.
-- **Dialogs**: "No updates found" and errors are now shown in a dialog box instead of a transient notification, ensuring you don't miss the result.
+### 🔥 New Features
+- **🛡️ Secure Delete**:
+  - Added "Secure Delete" modes in Settings: **1-pass zeros** and **1-pass random data**.
+  - **Best Effort**: Attempts to overwrite file content before deletion.
+  - **Payload Protection**: Strictly wipes only files within `$Recycle.Bin` matching specific patterns (`$R...`), ensuring safety of other data.
+  - **Feedback**: Detailed notifications about how many files were successfully overwritten and if any were locked.
+- **Improved UX**:
+  - **Confirmation Dialogs**: Now clearly state which mode is active (Normal vs Secure) and warn about disk load.
+  - **Warnings**: One-time warning when enabling secure mode about SSD wear and limitations.
+
+### 🛠️ Improvements
+- **Tests**: Added unit tests for secure deletion logic and settings normalization.
+- **I18n**: Fully localized (RU/EN) for all new dialogs and menus.
 
 ### 📝 Notes
-- Release to ensure users have the best updater experience out-of-the-box.
+- **SSD Users**: Please note that due to hardware wear leveling, absolute secure deletion cannot be guaranteed on modern SSDs/NVMe drives without full disk encryption/sanitization. Binity does its best to overwrite data at the OS level.
 """
     }
 ]
