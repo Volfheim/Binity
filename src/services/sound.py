@@ -12,7 +12,7 @@ SOUND_PAPER = "paper"
 
 class SoundService:
     def __init__(self) -> None:
-        self.paper_sound_path = Path(resource_path("sounds/paper_crumple.wav"))
+        self.paper_sound_path = Path(resource_path("sounds/paper-crumpling.wav"))
 
     def play_clear_success(self, mode: str) -> None:
         mode = str(mode or SOUND_OFF).lower()
