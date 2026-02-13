@@ -8,11 +8,13 @@ from src.core.resources import resource_path
 SOUND_OFF = "off"
 SOUND_WINDOWS = "windows"
 SOUND_PAPER = "paper"
+SOUND_TRASH = "trash"
 
 
 class SoundService:
     def __init__(self) -> None:
         self.paper_sound_path = Path(resource_path("sounds/paper-crumpling.wav"))
+        self.trash_sound_path = Path(resource_path("sounds/throwing-paper.wav"))
 
     def play_clear_success(self, mode: str) -> None:
         mode = str(mode or SOUND_OFF).lower()
@@ -34,7 +36,14 @@ class SoundService:
             except RuntimeError:
                 pass
 
-        if mode in (SOUND_WINDOWS, SOUND_PAPER):
+        if mode == SOUND_TRASH and self.trash_sound_path.exists():
+            try:
+                winsound.PlaySound(str(self.trash_sound_path), winsound.SND_FILENAME | winsound.SND_ASYNC)
+                return
+            except RuntimeError:
+                pass
+
+        if mode in (SOUND_WINDOWS, SOUND_PAPER, SOUND_TRASH):
             try:
                 winsound.PlaySound("SystemAsterisk", winsound.SND_ALIAS | winsound.SND_ASYNC)
             except RuntimeError:
