@@ -498,6 +498,7 @@ class TrayApp(QObject):
         self._update_progress_dialog.setWindowTitle(self.i18n.tr("update_dialog_title"))
         self._update_progress_dialog.setLabelText(self.i18n.tr("update_downloading_progress").format(percent=0))
         self._update_progress_dialog.setValue(0)
+        self._update_progress_dialog.setMinimumWidth(350)
         self._update_progress_dialog.show()
 
     def _close_update_progress_dialog(self) -> None:
@@ -837,11 +838,11 @@ class TrayApp(QObject):
         msg.setStyleSheet(
             """
             QLabel {
-                min-width: 520px;
+                min-width: 380px;
             }
             QTextEdit {
-                min-width: 560px;
-                min-height: 260px;
+                min-width: 400px;
+                min-height: 200px;
             }
             """
         )

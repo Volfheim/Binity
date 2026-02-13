@@ -13,6 +13,18 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.3",
+        "prev": "v3.3.2",
+        "name": "Binity v3.3.3",
+        "body": """## 🛠️ UI Polish & Sound Fix (v3.3.3)
+Fixes for update dialog resizing and sound packaging.
+
+### 🐛 Fixes
+- **UI**: Normalized update dialog size (was too wide) and increased progress bar size.
+- **Sound**: Fixed packaging issue where the new "Throw in trash" sound was missing in the release.
+"""
+    },
+    {
         "tag": "v3.3.2",
         "prev": "v3.3.1",
         "name": "Binity v3.3.2",
