@@ -13,10 +13,10 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.1.1",
+        "tag": "v3.1.0",
         "prev": "v3.0.1",
-        "name": "Binity v3.1.1",
-        "body": """## 🔊 Audio & Theme Update (v3.1.1)
+        "name": "Binity v3.1.0",
+        "body": """## 🔊 Audio & Theme Update (v3.1.0)
 Major experience upgrade with audio feedback, theme synchronization, and smarter bin monitoring.
 
 ### 🆕 New Features
@@ -29,6 +29,7 @@ Major experience upgrade with audio feedback, theme synchronization, and smarter
 - **UI Contrast**: Improved GitHub icon visibility in Light Theme.
 - **Fix**: Resolved duplicate confirmation dialogs.
 - **Tests**: Added comprehensive test suite for new logic.
+- **Stability**: UPX compression disabled to prevent DLL extraction errors on some systems.
 
 ### 📝 Notes
 - Includes all stability fixes from v3.0.1.
