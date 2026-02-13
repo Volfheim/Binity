@@ -13,7 +13,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "confirm_clear": True,
     "double_click_action": "open",
     "update_interval_sec": 10,
-    "clear_sound": "off",
+    "clear_sound": "paper",
     "overflow_notify_enabled": True,
     "overflow_notify_threshold_gb": 15,
     "theme_sync": True,
@@ -68,7 +68,7 @@ class Settings:
             interval = 10
         self.values["update_interval_sec"] = max(3, min(interval, 120))
 
-        sound_mode = str(self.values.get("clear_sound", "off")).lower()
+        sound_mode = str(self.values.get("clear_sound", "paper")).lower()
         if sound_mode not in ("off", "windows", "paper"):
             sound_mode = "off"
         self.values["clear_sound"] = sound_mode
@@ -159,7 +159,7 @@ class Settings:
 
     @property
     def clear_sound(self) -> str:
-        sound_mode = str(self.get("clear_sound", "off")).lower()
+        sound_mode = str(self.get("clear_sound", "paper")).lower()
         return sound_mode if sound_mode in ("off", "windows", "paper") else "off"
 
     @property
