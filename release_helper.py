@@ -13,6 +13,20 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.2",
+        "prev": "v3.3.1",
+        "name": "Binity v3.3.2",
+        "body": """## 🔊 New Sound (v3.3.2)
+Minor update adding a new sound effect.
+
+### 🔊 Features
+- **Sound**: Added a new "Throw in trash" sound effect.
+
+### 📝 Notes
+- Enjoy the satisfying sound of cleaning up!
+"""
+    },
+    {
         "tag": "v3.3.1",
         "prev": "v3.3.0",
         "name": "Binity v3.3.1",

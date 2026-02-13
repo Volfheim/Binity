@@ -22,7 +22,7 @@ from src.services.recycle_bin import (
     SECURE_DELETE_RANDOM,
     SECURE_DELETE_ZERO,
 )
-from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_WINDOWS, SoundService
+from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_TRASH, SOUND_WINDOWS, SoundService
 from src.services.system_theme import SystemThemeService
 from src.ui.dialogs.about_dialog import AboutDialog
 from src.ui.dialogs.confirm_dialog import ConfirmDialog
@@ -251,13 +251,19 @@ class TrayApp(QObject):
         self.sound_paper_action.setCheckable(True)
         self.sound_paper_action.triggered.connect(lambda: self._set_clear_sound(SOUND_PAPER))
 
+        self.sound_trash_action = QAction(self.sound_menu)
+        self.sound_trash_action.setCheckable(True)
+        self.sound_trash_action.triggered.connect(lambda: self._set_clear_sound(SOUND_TRASH))
+
         self.sound_group.addAction(self.sound_off_action)
         self.sound_group.addAction(self.sound_windows_action)
         self.sound_group.addAction(self.sound_paper_action)
+        self.sound_group.addAction(self.sound_trash_action)
 
         self.sound_menu.addAction(self.sound_off_action)
         self.sound_menu.addAction(self.sound_windows_action)
         self.sound_menu.addAction(self.sound_paper_action)
+        self.sound_menu.addAction(self.sound_trash_action)
         self.settings_menu.addMenu(self.sound_menu)
 
         self.secure_delete_menu = QMenu(self.settings_menu)
@@ -355,6 +361,7 @@ class TrayApp(QObject):
         self.sound_off_action.setChecked(sound_mode == SOUND_OFF)
         self.sound_windows_action.setChecked(sound_mode == SOUND_WINDOWS)
         self.sound_paper_action.setChecked(sound_mode == SOUND_PAPER)
+        self.sound_trash_action.setChecked(sound_mode == SOUND_TRASH)
 
         secure_mode = self.settings.secure_delete_mode
         self.secure_delete_off_action.setChecked(secure_mode == SECURE_DELETE_OFF)
@@ -394,6 +401,7 @@ class TrayApp(QObject):
         self.sound_off_action.setText(self.i18n.tr("sound_off"))
         self.sound_windows_action.setText(self.i18n.tr("sound_windows"))
         self.sound_paper_action.setText(self.i18n.tr("sound_paper"))
+        self.sound_trash_action.setText(self.i18n.tr("sound_trash"))
 
         self.secure_delete_menu.setTitle(self.i18n.tr("secure_delete"))
         self.secure_delete_off_action.setText(self.i18n.tr("secure_delete_off"))
@@ -613,7 +621,7 @@ class TrayApp(QObject):
         self._apply_menu_state()
 
     def _set_clear_sound(self, mode: str) -> None:
-        if mode not in (SOUND_OFF, SOUND_WINDOWS, SOUND_PAPER):
+        if mode not in (SOUND_OFF, SOUND_WINDOWS, SOUND_PAPER, SOUND_TRASH):
             return
         self.settings.set("clear_sound", mode)
         self._apply_menu_state()
