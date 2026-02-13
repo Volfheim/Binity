@@ -22,8 +22,16 @@ def _set_windows_app_id() -> None:
         pass
 
 
+def _consume_switch(flag: str) -> bool:
+    if flag in sys.argv:
+        sys.argv.remove(flag)
+        return True
+    return False
+
+
 def main() -> int:
     _set_windows_app_id()
+    show_after_update = _consume_switch("--show-after-update")
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -39,7 +47,7 @@ def main() -> int:
 
     app._instance_lock = lock  # type: ignore[attr-defined]
 
-    tray_app = TrayApp(settings=settings, i18n=i18n)
+    tray_app = TrayApp(settings=settings, i18n=i18n, show_after_update=show_after_update)
     app._tray_app = tray_app  # type: ignore[attr-defined]
 
     return int(app.exec())

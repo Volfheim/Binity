@@ -17,6 +17,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "overflow_notify_enabled": True,
     "overflow_notify_threshold_gb": 15,
     "theme_sync": True,
+    "auto_check_updates": True,
+    "last_update_check": "",
+    "skipped_update_version": "",
 }
 
 LEGACY_REG_KEY = r"Software\Binity"
@@ -82,6 +85,21 @@ class Settings:
         self.values["overflow_notify_threshold_gb"] = max(1, min(overflow_threshold, 1024))
 
         self.values["theme_sync"] = bool(self.values.get("theme_sync", True))
+
+        self.values["auto_check_updates"] = bool(self.values.get("auto_check_updates", True))
+
+        last_update_check = str(self.values.get("last_update_check", "") or "").strip()
+        if last_update_check:
+            try:
+                from datetime import datetime
+
+                datetime.fromisoformat(last_update_check)
+            except Exception:
+                last_update_check = ""
+        self.values["last_update_check"] = last_update_check
+
+        skipped_update_version = str(self.values.get("skipped_update_version", "") or "").strip()
+        self.values["skipped_update_version"] = skipped_update_version
 
     def _import_legacy_registry_values(self) -> None:
         if os.name != "nt":
@@ -177,3 +195,15 @@ class Settings:
     @property
     def theme_sync(self) -> bool:
         return bool(self.get("theme_sync", True))
+
+    @property
+    def auto_check_updates(self) -> bool:
+        return bool(self.get("auto_check_updates", True))
+
+    @property
+    def last_update_check(self) -> str:
+        return str(self.get("last_update_check", "") or "")
+
+    @property
+    def skipped_update_version(self) -> str:
+        return str(self.get("skipped_update_version", "") or "")

@@ -13,26 +13,28 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.1.0",
-        "prev": "v3.0.1",
-        "name": "Binity v3.1.0",
-        "body": """## 🔊 Audio & Theme Update (v3.1.0)
-Major experience upgrade with audio feedback, theme synchronization, and smarter bin monitoring.
+        "tag": "v3.2.0",
+        "prev": "v3.1.0",
+        "name": "Binity v3.2.0",
+        "body": """## 🚀 Auto-Updater & Tray Improvements (v3.2.0)
+Major update introducing seamless in-app updates and refined tray experience.
 
-### 🆕 New Features
-- **🔊 Sound Feedback**: Satisfying "paper crumple" sound played upon successful bin clearing (with system beep fallback).
-- **🌗 Theme Sync**: Automatically detects Windows theme (Dark/Light) and adapts the UI instantly.
-- **📊 Hybrid Monitoring**: Smart bin level calculation based on both file count and total size.
-- **💬 Toast Notifications**: Native Windows notifications for bin overflow warnings and clearing confirmation.
+### 🔥 New Features
+- **🔄 Auto-Updater**: Binity now checks for updates automatically and installs them in one click.
+  - Supports "Check now", "Skip version", and "Remind later".
+  - Secure validation of downloaded updates (Signature & Size check).
+  - Background downloading without freezing the UI.
+- **📋 Tray Menu**:
+  - Added "Check for updates" option.
+  - New settings for update preferences.
 
-### 🛠️ Improvements
-- **UI Contrast**: Improved GitHub icon visibility in Light Theme.
-- **Fix**: Resolved duplicate confirmation dialogs.
-- **Tests**: Added comprehensive test suite for new logic.
-- **Stability**: UPX compression disabled to prevent DLL extraction errors on some systems.
+### 🛠️ Fixes & improvements
+- **Git**: Fixed project metadata issues.
+- **I18n**: Added Russian/English translations for updater dialogs.
+- **Stability**: Improved error handling during network requests.
 
 ### 📝 Notes
-- Includes all stability fixes from v3.0.1.
+- This version includes a self-updating mechanism that will make future updates much easier!
 """
     }
 ]
@@ -74,11 +76,6 @@ def request(url, method="GET", data=None, content_type="application/json"):
         raise
 
 def build_exe():
-    exe_path = os.path.join("dist", "Binity.exe")
-    if os.path.exists(exe_path):
-        print("  Found existing Binity.exe, skipping build...")
-        return exe_path
-
     print("  Building EXE...")
     
     for _ in range(3):

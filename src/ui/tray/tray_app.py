@@ -11,6 +11,7 @@ from src.core.formatting import format_size
 from src.core.i18n import I18n
 from src.core.resources import resource_path
 from src.core.settings import Settings
+from src.core.updater import UpdateInfo, Updater
 from src.services.autostart import AutostartService
 from src.services.recycle_bin import RecycleBinService
 from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_WINDOWS, SoundService
@@ -20,6 +21,7 @@ from src.ui.dialogs.confirm_dialog import ConfirmDialog
 
 OPEN_ACTION = "open"
 CLEAR_ACTION = "clear"
+UPDATE_TIMER_INTERVAL_MS = 30 * 60 * 1000
 
 ICON_MAP = {
     0: "icons/bin_0.ico",
@@ -45,8 +47,44 @@ class _ClearBinTask(QRunnable):
         self.signals.finished.emit(success)
 
 
+class _UpdateCheckTaskSignals(QObject):
+    finished = pyqtSignal(object, str, bool)
+
+
+class _UpdateCheckTask(QRunnable):
+    def __init__(self, updater: Updater, force: bool, manual: bool) -> None:
+        super().__init__()
+        self.updater = updater
+        self.force = bool(force)
+        self.manual = bool(manual)
+        self.signals = _UpdateCheckTaskSignals()
+
+    def run(self) -> None:
+        info = self.updater.check_for_update(force=self.force)
+        error = str(self.updater.last_error or "")
+        self.signals.finished.emit(info, error, self.manual)
+
+
+class _UpdateDownloadTaskSignals(QObject):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str, str)
+
+
+class _UpdateDownloadTask(QRunnable):
+    def __init__(self, updater: Updater) -> None:
+        super().__init__()
+        self.updater = updater
+        self.signals = _UpdateDownloadTaskSignals()
+
+    def run(self) -> None:
+        downloaded = self.updater.download_update(on_progress=self.signals.progress.emit)
+        downloaded_path = str(downloaded) if downloaded else ""
+        error = str(self.updater.last_error or "")
+        self.signals.finished.emit(downloaded_path, error)
+
+
 class TrayApp(QObject):
-    def __init__(self, settings: Settings, i18n: I18n) -> None:
+    def __init__(self, settings: Settings, i18n: I18n, show_after_update: bool = False) -> None:
         super().__init__()
         self.settings = settings
         self.i18n = i18n
@@ -55,6 +93,7 @@ class TrayApp(QObject):
         self.autostart = AutostartService()
         self.sound_service = SoundService()
         self.theme_service = SystemThemeService()
+        self.updater = Updater(settings)
 
         self.current_theme = self.theme_service.get_theme()
         self.icons = self._load_icons(self.current_theme)
@@ -67,6 +106,13 @@ class TrayApp(QObject):
         self._confirm_dialog: ConfirmDialog | None = None
         self._clear_in_progress = False
         self._clear_task: _ClearBinTask | None = None
+
+        self._update_check_in_progress = False
+        self._update_download_in_progress = False
+        self._update_check_task: _UpdateCheckTask | None = None
+        self._update_download_task: _UpdateDownloadTask | None = None
+        self._update_notified_version = ""
+
         self._overflow_notified = False
         self._thread_pool = QThreadPool.globalInstance()
 
@@ -80,6 +126,22 @@ class TrayApp(QObject):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_state)
         self.timer.start(self.settings.update_interval_sec * 1000)
+
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self._schedule_auto_update_check)
+        self.update_timer.start(UPDATE_TIMER_INTERVAL_MS)
+        QTimer.singleShot(5000, self._schedule_auto_update_check)
+
+        if show_after_update or self.updater.just_updated:
+            QTimer.singleShot(
+                1800,
+                lambda: self.tray.showMessage(
+                    self.i18n.tr("app_name"),
+                    self.i18n.tr("update_installed"),
+                    QSystemTrayIcon.MessageIcon.Information,
+                    2800,
+                ),
+            )
 
     def _theme_icon_path(self, relative_path: str, theme: str) -> str:
         filename = Path(relative_path).name
@@ -203,7 +265,22 @@ class TrayApp(QObject):
         self.theme_sync_action.toggled.connect(self._on_theme_sync_toggled)
         self.settings_menu.addAction(self.theme_sync_action)
 
+        self.auto_updates_action = QAction(self.settings_menu)
+        self.auto_updates_action.setCheckable(True)
+        self.auto_updates_action.toggled.connect(self._on_auto_updates_toggled)
+        self.settings_menu.addAction(self.auto_updates_action)
+
         self.menu.addMenu(self.settings_menu)
+
+        self.check_updates_action = QAction(self.menu)
+        self.check_updates_action.triggered.connect(lambda: self._check_for_updates(force=True, manual=True))
+        self.menu.addAction(self.check_updates_action)
+
+        self.update_now_action = QAction(self.menu)
+        self.update_now_action.triggered.connect(self._show_update_dialog)
+        self.update_now_action.setVisible(False)
+        self.menu.addAction(self.update_now_action)
+
         self.menu.addSeparator()
 
         self.about_action = QAction(self.menu)
@@ -246,6 +323,10 @@ class TrayApp(QObject):
         self.theme_sync_action.setChecked(self.settings.theme_sync)
         self.theme_sync_action.blockSignals(False)
 
+        self.auto_updates_action.blockSignals(True)
+        self.auto_updates_action.setChecked(self.settings.auto_check_updates)
+        self.auto_updates_action.blockSignals(False)
+
     def _update_texts(self) -> None:
         self.open_action.setText(self.i18n.tr("open_bin"))
         self.clear_action.setText(self.i18n.tr("clear_bin"))
@@ -270,14 +351,33 @@ class TrayApp(QObject):
 
         self.overflow_notify_action.setText(self.i18n.tr("overflow_notify"))
         self.theme_sync_action.setText(self.i18n.tr("theme_sync"))
+        self.auto_updates_action.setText(self.i18n.tr("auto_check_updates"))
+        self.check_updates_action.setText(self.i18n.tr("check_updates"))
 
         self.about_action.setText(self.i18n.tr("about"))
         self.exit_action.setText(self.i18n.tr("exit"))
+
+        self._refresh_update_action_text()
 
         if self._about_dialog and self._about_dialog.isVisible():
             self._about_dialog.refresh_texts()
         if self._confirm_dialog and self._confirm_dialog.isVisible():
             self._confirm_dialog.refresh_texts()
+
+    def _refresh_update_action_text(self) -> None:
+        if self._update_download_in_progress:
+            self.update_now_action.setVisible(True)
+            self.update_now_action.setEnabled(False)
+            return
+
+        if self.updater.has_update:
+            version = self.updater.update_version.lstrip("vV")
+            self.update_now_action.setText(self.i18n.tr("update_now").format(version=version))
+            self.update_now_action.setVisible(True)
+            self.update_now_action.setEnabled(True)
+        else:
+            self.update_now_action.setVisible(False)
+            self.update_now_action.setEnabled(False)
 
     def _sync_system_theme(self) -> None:
         if not self.settings.theme_sync:
@@ -355,6 +455,11 @@ class TrayApp(QObject):
         if enabled:
             self._sync_system_theme()
 
+    def _on_auto_updates_toggled(self, enabled: bool) -> None:
+        self.settings.set("auto_check_updates", bool(enabled))
+        if enabled:
+            self._schedule_auto_update_check()
+
     def _set_language(self, language: str) -> None:
         self.settings.set("language", language)
         self.i18n.set_language(language)
@@ -431,6 +536,145 @@ class TrayApp(QObject):
         )
         self._refresh_state()
 
+    def _schedule_auto_update_check(self) -> None:
+        if not self.settings.auto_check_updates:
+            return
+        self._check_for_updates(force=False, manual=False)
+
+    def _check_for_updates(self, force: bool, manual: bool) -> None:
+        if self._update_check_in_progress or self._update_download_in_progress:
+            return
+
+        self._update_check_in_progress = True
+        self.check_updates_action.setEnabled(False)
+
+        task = _UpdateCheckTask(self.updater, force=force, manual=manual)
+        task.signals.finished.connect(self._on_update_check_finished)
+        self._update_check_task = task
+        self._thread_pool.start(task)
+
+    def _on_update_check_finished(self, info_obj: object, error: str, manual: bool) -> None:
+        self._update_check_in_progress = False
+        self._update_check_task = None
+        if not self._update_download_in_progress:
+            self.check_updates_action.setEnabled(True)
+
+        info = info_obj if isinstance(info_obj, UpdateInfo) else None
+        self._refresh_update_action_text()
+
+        if info:
+            if info.version != self._update_notified_version:
+                self._update_notified_version = info.version
+                self.tray.showMessage(
+                    self.i18n.tr("update_available_title"),
+                    self.i18n.tr("update_available_message").format(version=info.version),
+                    QSystemTrayIcon.MessageIcon.Information,
+                    4200,
+                )
+            if manual:
+                self._show_update_dialog()
+            return
+
+        if error and manual:
+            self._show_error(f"{self.i18n.tr('error_update_check')}\n{error}")
+            return
+
+        if manual:
+            self.tray.showMessage(
+                self.i18n.tr("app_name"),
+                self.i18n.tr("update_not_found"),
+                QSystemTrayIcon.MessageIcon.Information,
+                2500,
+            )
+
+    def _show_update_dialog(self) -> None:
+        if self._update_download_in_progress:
+            return
+        if not self.updater.has_update:
+            self._check_for_updates(force=True, manual=True)
+            return
+
+        body = self.updater.update_body.strip() or "-"
+        msg = QMessageBox()
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setWindowTitle(self.i18n.tr("update_dialog_title"))
+        msg.setText(self.i18n.tr("update_dialog_message").format(version=self.updater.update_version))
+        msg.setInformativeText(self.i18n.tr("update_dialog_hint"))
+        msg.setDetailedText(f"{self.i18n.tr('release_notes')}:\n\n{body}")
+
+        btn_update = msg.addButton(self.i18n.tr("update_install"), QMessageBox.ButtonRole.AcceptRole)
+        btn_skip = msg.addButton(self.i18n.tr("update_skip"), QMessageBox.ButtonRole.DestructiveRole)
+        btn_later = msg.addButton(self.i18n.tr("update_later"), QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(btn_update)
+        msg.exec()
+
+        if msg.clickedButton() == btn_update:
+            self._start_update_download()
+        elif msg.clickedButton() == btn_skip:
+            self.updater.skip_version()
+            self._update_notified_version = ""
+            self._refresh_update_action_text()
+        elif msg.clickedButton() == btn_later:
+            pass
+
+    def _start_update_download(self) -> None:
+        if self._update_download_in_progress:
+            return
+        if not self.updater.has_update:
+            return
+
+        self._update_download_in_progress = True
+        self.check_updates_action.setEnabled(False)
+        self.update_now_action.setVisible(True)
+        self.update_now_action.setEnabled(False)
+        self.update_now_action.setText(self.i18n.tr("update_downloading_progress").format(percent=0))
+
+        self.tray.showMessage(
+            self.i18n.tr("app_name"),
+            self.i18n.tr("update_downloading"),
+            QSystemTrayIcon.MessageIcon.Information,
+            2000,
+        )
+
+        task = _UpdateDownloadTask(self.updater)
+        task.signals.progress.connect(self._on_update_download_progress)
+        task.signals.finished.connect(self._on_update_download_finished)
+        self._update_download_task = task
+        self._thread_pool.start(task)
+
+    def _on_update_download_progress(self, percent: int) -> None:
+        self.update_now_action.setText(self.i18n.tr("update_downloading_progress").format(percent=percent))
+
+    def _on_update_download_finished(self, downloaded_path: str, error: str) -> None:
+        self._update_download_in_progress = False
+        self._update_download_task = None
+        self.check_updates_action.setEnabled(True)
+
+        if not downloaded_path:
+            message = self.i18n.tr("error_update_download")
+            if error:
+                message = f"{message}\n{error}"
+            self._refresh_update_action_text()
+            self._show_error(message)
+            return
+
+        self.tray.showMessage(
+            self.i18n.tr("app_name"),
+            self.i18n.tr("update_applying"),
+            QSystemTrayIcon.MessageIcon.Information,
+            2500,
+        )
+
+        if not self.updater.apply_update(Path(downloaded_path)):
+            message = self.i18n.tr("error_update_apply")
+            if self.updater.last_error:
+                message = f"{message}\n{self.updater.last_error}"
+            self._refresh_update_action_text()
+            self._show_error(message)
+            return
+
+        self.quit_app()
+
     def show_about(self) -> None:
         if self._about_dialog is None:
             self._about_dialog = AboutDialog(self.i18n, theme=self.current_theme)
@@ -443,6 +687,7 @@ class TrayApp(QObject):
 
     def quit_app(self) -> None:
         self.timer.stop()
+        self.update_timer.stop()
         self.tray.hide()
         from PyQt6.QtWidgets import QApplication
 
