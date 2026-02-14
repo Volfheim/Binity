@@ -541,7 +541,7 @@ class TrayApp(QObject):
 
         normalized = "\n".join(lines)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
-        # Final cleanup of any remaining markdown symbols
+
         normalized = re.sub(r"\*\*(.*?)\*\*", r"\1", normalized)  # Bold
         normalized = re.sub(r"__(.*?)__", r"\1", normalized)      # Bold
         normalized = re.sub(r"\*(.*?)\*", r"\1", normalized)      # Italic
@@ -860,14 +860,13 @@ class TrayApp(QObject):
         msg.setDefaultButton(btn_update)
         msg.exec()
 
-        if msg.clickedButton() == btn_update:
+        clicked = msg.clickedButton()
+        if clicked == btn_update:
             self._start_update_download()
-        elif msg.clickedButton() == btn_skip:
+        elif clicked == btn_skip:
             self.updater.skip_version()
             self._update_notified_version = ""
             self._refresh_update_action_text()
-        elif msg.clickedButton() == btn_later:
-            pass
 
     def _start_update_download(self) -> None:
         if self._update_download_in_progress:

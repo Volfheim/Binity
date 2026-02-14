@@ -164,63 +164,52 @@ class Settings:
 
     @property
     def language(self) -> str:
-        return str(self.get("language", "RU")).upper()
+        return self.values["language"]
 
     @property
     def confirm_clear(self) -> bool:
-        return bool(self.get("confirm_clear", True))
+        return self.values["confirm_clear"]
 
     @property
     def double_click_action(self) -> str:
-        action = str(self.get("double_click_action", "open")).lower()
-        return action if action in ("open", "clear") else "open"
+        return self.values["double_click_action"]
 
     @property
     def update_interval_sec(self) -> int:
-        try:
-            interval = int(self.get("update_interval_sec", 10))
-        except Exception:
-            interval = 10
-        return max(3, min(interval, 120))
+        return self.values["update_interval_sec"]
 
     @property
     def clear_sound(self) -> str:
-        sound_mode = str(self.get("clear_sound", "paper")).lower()
-        return sound_mode if sound_mode in ("off", "windows", "paper", "trash") else "off"
+        return self.values["clear_sound"]
 
     @property
     def overflow_notify_enabled(self) -> bool:
-        return bool(self.get("overflow_notify_enabled", True))
+        return self.values["overflow_notify_enabled"]
 
     @property
     def overflow_notify_threshold_gb(self) -> int:
-        try:
-            value = int(self.get("overflow_notify_threshold_gb", 15))
-        except Exception:
-            value = 15
-        return max(1, min(value, 1024))
+        return self.values["overflow_notify_threshold_gb"]
 
     @property
     def theme_sync(self) -> bool:
-        return bool(self.get("theme_sync", True))
+        return self.values["theme_sync"]
 
     @property
     def auto_check_updates(self) -> bool:
-        return bool(self.get("auto_check_updates", True))
+        return self.values["auto_check_updates"]
 
     @property
     def secure_delete_mode(self) -> str:
-        mode = str(self.get("secure_delete_mode", "off")).lower()
-        return mode if mode in ("off", "zero", "random") else "off"
+        return self.values["secure_delete_mode"]
 
     @property
     def secure_delete_info_ack(self) -> bool:
-        return bool(self.get("secure_delete_info_ack", False))
+        return self.values["secure_delete_info_ack"]
 
     @property
     def last_update_check(self) -> str:
-        return str(self.get("last_update_check", "") or "")
+        return self.values.get("last_update_check", "")
 
     @property
     def skipped_update_version(self) -> str:
-        return str(self.get("skipped_update_version", "") or "")
+        return self.values.get("skipped_update_version", "")

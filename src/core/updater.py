@@ -86,7 +86,6 @@ class Updater:
     def _should_check(self) -> bool:
         if self._just_updated:
             return False
-        # If frozen, we check. If not frozen, we only check if forced (handled in check_for_update)
         if not self.is_frozen():
             return False
         if not self.settings.get("auto_check_updates", True):
@@ -202,40 +201,38 @@ class Updater:
             local_ver = self._parse_version(__version__)
             skipped = str(self.settings.get("skipped_update_version", "") or "")
 
-            if bool(release.get("draft")) or bool(release.get("prerelease")):
+            def _no_update() -> None:
                 self.settings.set("last_update_check", datetime.now().isoformat())
                 self._info = None
+
+            if bool(release.get("draft")) or bool(release.get("prerelease")):
+                _no_update()
                 return None
 
             tag_name = str(release.get("tag_name", "") or "")
             if not tag_name:
-                self.settings.set("last_update_check", datetime.now().isoformat())
-                self._info = None
+                _no_update()
                 return None
 
             remote_ver = self._parse_version(tag_name)
             if remote_ver <= local_ver:
-                self.settings.set("last_update_check", datetime.now().isoformat())
-                self._info = None
+                _no_update()
                 return None
 
             if not force and skipped and skipped == tag_name:
-                self.settings.set("last_update_check", datetime.now().isoformat())
-                self._info = None
+                _no_update()
                 return None
 
             selected_asset = self._select_asset(list(release.get("assets", [])), tag_name)
             if selected_asset is None:
-                self.settings.set("last_update_check", datetime.now().isoformat())
-                self._info = None
+                _no_update()
                 return None
 
             download_url = str(selected_asset.get("browser_download_url", "") or "")
             asset_name = str(selected_asset.get("name", "") or "")
             asset_size = int(selected_asset.get("size", 0) or 0)
             if not download_url:
-                self.settings.set("last_update_check", datetime.now().isoformat())
-                self._info = None
+                _no_update()
                 return None
 
             self._info = UpdateInfo(

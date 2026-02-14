@@ -99,7 +99,6 @@ class AboutDialog(QDialog):
             candidate = THEME_DARK
         self.theme = candidate
 
-        # Update GitHub icon based on theme
         if candidate == THEME_LIGHT:
             icon_name = "icons/github_dark.svg"
             btn_style = """
@@ -209,14 +208,12 @@ class AboutDialog(QDialog):
                 }
             """
 
-        # Apply Icon
         icon_obj = QIcon(resource_path(icon_name))
         if not icon_obj.isNull():
             self.github_btn.setIcon(icon_obj)
         else:
             self.github_btn.setText("GH")
 
-        # Combine and apply styles
         self.setStyleSheet(dialog_style + btn_style)
 
     def refresh_texts(self) -> None:

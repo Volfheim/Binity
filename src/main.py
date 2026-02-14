@@ -3,6 +3,7 @@
 import ctypes
 import os
 import sys
+import traceback
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -13,6 +14,26 @@ from src.core.settings import Settings
 from src.core.single_instance import acquire_single_instance_lock
 from src.ui.tray.tray_app import TrayApp
 from src.version import __app_name__
+
+
+def _install_crash_handler() -> None:
+    log_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "Binity")
+    os.makedirs(log_dir, exist_ok=True)
+    crash_log = os.path.join(log_dir, "crash.log")
+
+    def _handle_exception(exc_type, exc_value, exc_tb):
+        if exc_type is KeyboardInterrupt:
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        try:
+            with open(crash_log, "a", encoding="utf-8") as fh:
+                from datetime import datetime
+                fh.write(f"\n--- {datetime.now().isoformat()} ---\n{text}\n")
+        except OSError:
+            pass
+
+    sys.excepthook = _handle_exception
 
 
 def _set_windows_app_id() -> None:
@@ -73,6 +94,7 @@ def _resolve_app_icon() -> QIcon:
 
 
 def main() -> int:
+    _install_crash_handler()
     _set_windows_app_id()
     show_after_update = _consume_switch("--show-after-update")
     update_ready_flag = _consume_arg("--update-ready-flag")

@@ -13,6 +13,19 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.6",
+        "prev": "v3.3.5",
+        "name": "Binity v3.3.6",
+        "body": """## 🛠️ Code Refactoring & Stability (v3.3.6)
+Internal code cleanup and improved crash resilience.
+
+### 🔧 Improvements
+- **Stability**: Added global crash handler — unhandled exceptions are now logged to `crash.log` instead of silently terminating the app.
+- **Code**: Refactored settings, updater, and sound service internals for cleaner structure and reduced redundancy.
+- **Code**: Simplified property accessors and consolidated repetitive logic patterns.
+"""
+    },
+    {
         "tag": "v3.3.5",
         "prev": "v3.3.4",
         "name": "Binity v3.3.5",
