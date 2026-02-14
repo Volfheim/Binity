@@ -45,14 +45,16 @@ class _ClearBinTaskSignals(QObject):
 
 
 class _ClearBinTask(QRunnable):
+    """Async task to empty the recycle bin."""
+
     def __init__(self, recycle_bin: RecycleBinService, secure_mode: str) -> None:
         super().__init__()
-        self.recycle_bin = recycle_bin
+        self.service = recycle_bin
         self.secure_mode = secure_mode
         self.signals = _ClearBinTaskSignals()
 
     def run(self) -> None:
-        result = self.recycle_bin.empty_bin(self.secure_mode)
+        result = self.service.empty_bin(self.secure_mode)
         self.signals.finished.emit(result)
 
 
