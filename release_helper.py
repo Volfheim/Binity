@@ -13,6 +13,21 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.7",
+        "prev": "v3.3.6",
+        "name": "Binity v3.3.7",
+        "body": """## ⚙️ Settings & Updates (v3.3.7)
+Reorganized settings menu and improved update checking.
+
+### ✨ Features
+- **Settings**: Added \"Windows\" submenu grouping autostart, overflow notification, and theme sync settings.
+- **Updates**: App now checks for updates on every launch (with 24h cooldown for background rechecks).
+
+### 🔧 Improvements
+- **UX**: Cleaner settings menu layout with logical grouping.
+"""
+    },
+    {
         "tag": "v3.3.6",
         "prev": "v3.3.5",
         "name": "Binity v3.3.6",
