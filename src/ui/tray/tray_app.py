@@ -142,7 +142,7 @@ class TrayApp(QObject):
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._schedule_auto_update_check)
         self.update_timer.start(UPDATE_TIMER_INTERVAL_MS)
-        QTimer.singleShot(5000, self._schedule_auto_update_check)
+        QTimer.singleShot(5000, lambda: self._check_for_updates(force=True, manual=False))
 
         if show_after_update or self.updater.just_updated:
             QTimer.singleShot(
@@ -232,11 +232,6 @@ class TrayApp(QObject):
         self.language_menu.addAction(self.language_en_action)
         self.settings_menu.addMenu(self.language_menu)
 
-        self.autostart_action = QAction(self.settings_menu)
-        self.autostart_action.setCheckable(True)
-        self.autostart_action.toggled.connect(self._on_autostart_toggled)
-        self.settings_menu.addAction(self.autostart_action)
-
         self.sound_menu = QMenu(self.settings_menu)
         self.sound_group = QActionGroup(self.sound_menu)
         self.sound_group.setExclusive(True)
@@ -304,15 +299,24 @@ class TrayApp(QObject):
         self.secure_delete_menu.addAction(self.secure_delete_load_note_action)
         self.settings_menu.addMenu(self.secure_delete_menu)
 
-        self.overflow_notify_action = QAction(self.settings_menu)
+        self.windows_menu = QMenu(self.settings_menu)
+
+        self.autostart_action = QAction(self.windows_menu)
+        self.autostart_action.setCheckable(True)
+        self.autostart_action.toggled.connect(self._on_autostart_toggled)
+        self.windows_menu.addAction(self.autostart_action)
+
+        self.overflow_notify_action = QAction(self.windows_menu)
         self.overflow_notify_action.setCheckable(True)
         self.overflow_notify_action.toggled.connect(self._on_overflow_notify_toggled)
-        self.settings_menu.addAction(self.overflow_notify_action)
+        self.windows_menu.addAction(self.overflow_notify_action)
 
-        self.theme_sync_action = QAction(self.settings_menu)
+        self.theme_sync_action = QAction(self.windows_menu)
         self.theme_sync_action.setCheckable(True)
         self.theme_sync_action.toggled.connect(self._on_theme_sync_toggled)
-        self.settings_menu.addAction(self.theme_sync_action)
+        self.windows_menu.addAction(self.theme_sync_action)
+
+        self.settings_menu.addMenu(self.windows_menu)
 
         self.auto_updates_action = QAction(self.settings_menu)
         self.auto_updates_action.setCheckable(True)
@@ -397,8 +401,6 @@ class TrayApp(QObject):
         self.language_ru_action.setText(self.i18n.tr("language_ru"))
         self.language_en_action.setText(self.i18n.tr("language_en"))
 
-        self.autostart_action.setText(self.i18n.tr("autostart"))
-
         self.sound_menu.setTitle(self.i18n.tr("sound_after_clear"))
         self.sound_off_action.setText(self.i18n.tr("sound_off"))
         self.sound_windows_action.setText(self.i18n.tr("sound_windows"))
@@ -411,8 +413,11 @@ class TrayApp(QObject):
         self.secure_delete_random_action.setText(self.i18n.tr("secure_delete_random"))
         self.secure_delete_load_note_action.setText(self.i18n.tr("secure_delete_load_note"))
 
+        self.windows_menu.setTitle(self.i18n.tr("windows_submenu"))
+        self.autostart_action.setText(self.i18n.tr("autostart"))
         self.overflow_notify_action.setText(self.i18n.tr("overflow_notify"))
         self.theme_sync_action.setText(self.i18n.tr("theme_sync"))
+
         self.auto_updates_action.setText(self.i18n.tr("auto_check_updates"))
         self.check_updates_action.setText(self.i18n.tr("check_updates"))
 

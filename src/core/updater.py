@@ -18,7 +18,7 @@ GITHUB_HEADERS = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "Binity-Updater",
 }
-CHECK_INTERVAL_HOURS = 12
+CHECK_INTERVAL_HOURS = 24
 DOWNLOAD_SOCKET_TIMEOUT_SEC = 180
 DOWNLOAD_RETRY_COUNT = 2
 
