@@ -6,7 +6,6 @@ __pycache__/
 # Distribution / building
 build/
 dist/
-*.spec
 *.exe
 *.manifest
 
@@ -25,6 +24,9 @@ Desktop.ini
 # Local settings
 version.txt
 
-# Development / Testing
-tests/
-verify_sound.py
+# Local Python environments and test caches
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
