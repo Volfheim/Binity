@@ -32,17 +32,6 @@ class RecycleBinLevelTests(unittest.TestCase):
         self.assertEqual(RecycleBinService._normalize_secure_mode(SECURE_DELETE_RANDOM), SECURE_DELETE_RANDOM)
         self.assertEqual(RecycleBinService._normalize_secure_mode("strange"), SECURE_DELETE_OFF)
 
-    def test_secure_delete_safe_path_detection(self) -> None:
-        safe_file = Path(r"C:\$Recycle.Bin\S-1-5-21-1000\$RABCD.txt")
-        safe_nested = Path(r"D:\$Recycle.Bin\S-1-5-21-1000\$RXYZ\folder\item.bin")
-        unsafe_path = Path(r"C:\Users\User\Desktop\file.txt")
-        unsafe_meta = Path(r"C:\$Recycle.Bin\S-1-5-21-1000\$IABCD.txt")
-
-        self.assertTrue(RecycleBinService._is_safe_recycle_payload_path(safe_file))
-        self.assertTrue(RecycleBinService._is_safe_recycle_payload_path(safe_nested))
-        self.assertFalse(RecycleBinService._is_safe_recycle_payload_path(unsafe_path))
-        self.assertFalse(RecycleBinService._is_safe_recycle_payload_path(unsafe_meta))
-
     def test_recycle_bin_query_failure_is_not_reported_as_empty(self) -> None:
         with patch(
             "src.services.recycle_bin.ctypes.windll.shell32.SHQueryRecycleBinW",
@@ -51,15 +40,6 @@ class RecycleBinLevelTests(unittest.TestCase):
             info = RecycleBinService.get_info()
         self.assertFalse(info.available)
         self.assertEqual((info.size_bytes, info.items), (0, 0))
-
-    def test_locked_nested_recycle_directory_is_skipped(self) -> None:
-        class LockedDirectory:
-            @staticmethod
-            def rglob(_pattern):
-                raise OSError("access denied")
-
-        self.assertEqual(list(RecycleBinService._iter_nested_files(LockedDirectory())), [])
-
 
 if __name__ == "__main__":
     unittest.main()

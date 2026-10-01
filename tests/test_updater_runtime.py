@@ -1,5 +1,6 @@
 """Updater regression tests: local fixtures only, no network or EXE execution."""
 import io
+import hashlib
 import json
 import os
 import subprocess
@@ -193,6 +194,47 @@ class UpdaterRuntimeTests(unittest.TestCase):
     def test_download_rejects_sha256_mismatch_and_removes_file(self) -> None:
         payload = b"MZ" + b"x" * 1_000_000
         self._assert_invalid_download(payload, len(payload), "SHA-256 mismatch", "0" * 64)
+
+    def test_download_uses_immutable_snapshot_even_if_shared_metadata_changes(self):
+        payload = b"MZ" + b"x" * 1_000_000
+        info = UpdateInfo('v9.0', 'https://example.test/Binity.exe', '', 'Binity.exe',
+                          len(payload), hashlib.sha256(payload).hexdigest())
+        self.updater._info = info
+        response = io.BytesIO(payload)
+        response.headers = {'Content-Length': str(len(payload))}
+        def open_response(*_args, **_kwargs):
+            self.updater._info = None
+            return response
+        with patch('src.core.updater.urllib.request.urlopen', side_effect=open_response), \
+                patch('src.core.updater.subprocess.run'):
+            path = self.updater.download_update(info=info)
+        self.assertIsNotNone(path, self.updater.last_error)
+        self.assertEqual(path.read_bytes(), payload)
+
+    def test_check_is_not_started_while_download_owns_operation_lock(self):
+        with patch.object(self.updater, '_fetch_latest_release') as fetch:
+            self.updater._operation_lock.acquire()
+            try:
+                self.updater.check_for_update(force=True)
+            finally:
+                self.updater._operation_lock.release()
+        fetch.assert_not_called()
+
+    def test_download_is_not_started_while_check_owns_operation_lock(self):
+        self.updater._operation_lock.acquire()
+        try:
+            self.assertIsNone(self.updater.download_update())
+        finally:
+            self.updater._operation_lock.release()
+        self.assertIn('in progress', self.updater.last_error)
+
+    def test_skipping_prompt_snapshot_does_not_clear_a_different_release(self):
+        old = UpdateInfo('v8.0', '', '', '', 0)
+        current = UpdateInfo('v9.0', '', '', '', 0)
+        self.updater._info = current
+        self.updater.skip_version(old)
+        self.assertEqual(self.settings.skipped_update_version, 'v8.0')
+        self.assertIs(self.updater.info, current)
 
 
 if __name__ == "__main__":

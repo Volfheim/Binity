@@ -349,11 +349,13 @@ class RoundedDialogTests(unittest.TestCase):
     def test_short_messages_fit_actual_width_without_extra_blank_rows(self):
         for language in ("RU", "EN"):
             i18n = I18n(language)
-            for key in ("already_running", "secure_delete_info_message", "error_open_failed"):
+            for key in ("already_running", "secure_delete_info_message", "error_open_failed", "error_autostart"):
                 dialog = self.show(MessageDialog(i18n, "Binity", i18n.tr(key)))
                 with self.subTest(language=language, message=key):
                     self.assertLessEqual(dialog.height(), dialog.layout().totalHeightForWidth(dialog.width()) + 1)
                     self.assertLess(dialog.height(), 280)
+                    self.assertGreaterEqual(dialog.message_label.height(),
+                                            dialog.message_label.heightForWidth(dialog.message_label.width()))
 
     def test_control_labels_are_translated_and_buttons_have_sufficient_contrast(self):
         for language in ("RU", "EN"):

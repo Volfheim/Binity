@@ -87,6 +87,11 @@ class ScreenHarness(TrayApp):
         self.autostart.is_enabled.return_value = False
         self.updater = SimpleNamespace(has_update=True, update_version="v9.0.0")
         self._update_download_in_progress = False
+        self._update_check_in_progress = False
+        self._update_apply_in_progress = False
+        self._pending_update_path = None
+        self._clear_in_progress = False
+        self._state_task = None
         self._about_dialog = self._confirm_dialog = self._update_dialog = None
         self._update_progress_dialog = None
         self._shutting_down = False
@@ -260,7 +265,10 @@ class ThemeScreenTests(unittest.TestCase):
         self.widgets.append(progress)
         bar = progress.findChild(WaveProgressBar)
         menus = [controller.menu, *controller.menu.findChildren(type(controller.menu))]
+        self.addCleanup(self.app.styleHints().unsetColorScheme)
         for background, foreground in (("#ffffff", "#000000"), ("#202020", "#ffffff")):
+            self.app.styleHints().setColorScheme(Qt.ColorScheme.Light if background == "#ffffff"
+                                                else Qt.ColorScheme.Dark)
             palette = QPalette(self.original_palette)
             for role in (QPalette.ColorRole.Window, QPalette.ColorRole.Base, QPalette.ColorRole.Button):
                 palette.setColor(role, QColor(background))

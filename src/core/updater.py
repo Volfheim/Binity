@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 from src.version import __version__
@@ -26,7 +27,7 @@ DOWNLOAD_SOCKET_TIMEOUT_SEC = 180
 DOWNLOAD_RETRY_COUNT = 2
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class UpdateInfo:
     version: str
     download_url: str
@@ -42,6 +43,7 @@ class Updater:
         self._info: UpdateInfo | None = None
         self._checking = False
         self._downloading = False
+        self._operation_lock = Lock()
         self._just_updated = self._check_and_clear_flag()
         self.launch_target_path = ""
         self.launch_final_path = ""
@@ -203,9 +205,11 @@ class Updater:
         return candidates[0][1]
 
     def check_for_update(self, force: bool = False) -> UpdateInfo | None:
-        if self._checking:
+        if self._checking or self._downloading:
             return self._info
         if not force and not self._should_check():
+            return self._info
+        if not self._operation_lock.acquire(blocking=False):
             return self._info
 
         self._checking = True
@@ -267,10 +271,12 @@ class Updater:
             return None
         finally:
             self._checking = False
+            self._operation_lock.release()
 
-    def _download_target_path(self) -> Path:
+    def _download_target_path(self, info: UpdateInfo | None = None) -> Path:
+        info = info or self._info
         update_dir = self._update_dir()
-        desired_name = os.path.basename(str(self._info.asset_name or "").strip()) or "Binity.exe"
+        desired_name = os.path.basename(str(info.asset_name or "").strip()) or "Binity.exe"
         if not desired_name.lower().endswith(".exe"):
             desired_name += ".exe"
 
@@ -280,11 +286,15 @@ class Updater:
         # become a second installed executable in the application directory.
         return update_dir / f"next-{desired_name}"
 
-    def download_update(self, on_progress: Callable[[int], None] | None = None) -> Path | None:
-        if self._downloading:
+    def download_update(self, on_progress: Callable[[int], None] | None = None,
+                        info: UpdateInfo | None = None) -> Path | None:
+        if not self._operation_lock.acquire(blocking=False):
+            self.last_error = "Another update operation is in progress"
             return None
-        if not self._info:
+        info = info or self._info
+        if not info:
             self.last_error = "No update metadata available"
+            self._operation_lock.release()
             return None
 
         self._downloading = True
@@ -295,11 +305,11 @@ class Updater:
             update_dir = self._update_dir()
             update_dir.mkdir(parents=True, exist_ok=True)
 
-            target = self._download_target_path()
+            target = self._download_target_path(info)
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
                 target.unlink()
-            request = urllib.request.Request(self._info.download_url, headers=GITHUB_HEADERS, method="GET")
+            request = urllib.request.Request(info.download_url, headers=GITHUB_HEADERS, method="GET")
             for attempt in range(1, DOWNLOAD_RETRY_COUNT + 1):
                 try:
                     with urllib.request.urlopen(request, timeout=DOWNLOAD_SOCKET_TIMEOUT_SEC) as response:
@@ -333,8 +343,8 @@ class Updater:
                 raise RuntimeError("Downloaded file not found")
 
             actual_size = target.stat().st_size
-            if self._info.asset_size and actual_size != self._info.asset_size:
-                raise RuntimeError(f"Size mismatch: expected {self._info.asset_size}, got {actual_size}")
+            if info.asset_size and actual_size != info.asset_size:
+                raise RuntimeError(f"Size mismatch: expected {info.asset_size}, got {actual_size}")
             if actual_size < 1_000_000:
                 raise RuntimeError("Downloaded file too small (<1MB)")
 
@@ -343,13 +353,13 @@ class Updater:
             if header != b"MZ":
                 raise RuntimeError("Downloaded file is not a valid EXE")
 
-            if self._info.expected_sha256:
+            if info.expected_sha256:
                 digest = hashlib.sha256()
                 with open(target, "rb") as fh:
                     for chunk in iter(lambda: fh.read(1024 * 1024), b""):
                         digest.update(chunk)
                 actual_digest = digest.hexdigest()
-                if actual_digest != self._info.expected_sha256:
+                if actual_digest != info.expected_sha256:
                     raise RuntimeError("SHA-256 mismatch")
 
             try:
@@ -362,6 +372,7 @@ class Updater:
                         f"Unblock-File -LiteralPath '{quoted_target}'",
                     ],
                     check=False,
+                    timeout=15,
                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
                 )
             except Exception:
@@ -379,6 +390,7 @@ class Updater:
             return None
         finally:
             self._downloading = False
+            self._operation_lock.release()
 
     def _check_and_clear_flag(self) -> bool:
         try:
@@ -496,8 +508,10 @@ class Updater:
             self.last_error = str(exc)
             return False
 
-    def skip_version(self) -> None:
-        if not self._info:
+    def skip_version(self, info: UpdateInfo | None = None) -> None:
+        info = info or self._info
+        if not info:
             return
-        self.settings.set("skipped_update_version", self._info.version)
-        self._info = None
+        self.settings.set("skipped_update_version", info.version)
+        if self._info == info:
+            self._info = None

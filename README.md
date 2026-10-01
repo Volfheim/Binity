@@ -44,14 +44,14 @@ To run it at sign-in, enable **Settings → Windows → Run with Windows**. Keep
 
 Normal emptying uses the Windows Recycle Bin operation. Confirmation is enabled by default; emptying applies to the bin, not a selected file.
 
-**Secure delete is best effort.** The optional modes attempt to overwrite accessible Recycle Bin file contents once before normal emptying. Locked or inaccessible files may not be overwritten. SSD/NVMe wear leveling, snapshots, and backups can preserve other copies, so this is not a guarantee of irrecoverability or a replacement for device sanitization. Overwriting also increases disk activity and takes longer.
+**Secure delete is best effort.** The optional modes attempt to overwrite accessible Recycle Bin file contents once before normal emptying, only for the current Windows user. Hard links, reparse points (including junctions), and inaccessible files or directories are skipped and reported as an incomplete overwrite. SSD/NVMe wear leveling, snapshots, and backups can preserve other copies, so this is not a guarantee of irrecoverability or a replacement for device sanitization. Overwriting also increases disk activity and takes longer. Exit waits for active background work; an update is not applied during emptying.
 
 ## Settings and updates
 
 - Settings: `%APPDATA%\Binity\settings.json`. Existing supported legacy settings are imported on first launch.
 - Crash log, if an unhandled error occurs: `%LOCALAPPDATA%\Binity\crash.log`.
 - Update staging and diagnostics: `%LOCALAPPDATA%\Binity\updates\`.
-- Packaged builds check GitHub Releases at launch and periodically; downloads and installation require an update prompt to be accepted. A manual check is available in the tray menu. The startup check runs even if background auto-checks are disabled in the current version.
+- Packaged builds check GitHub Releases at launch and periodically when auto-checks are enabled; automatic checks respect skipped versions. Downloads and installation require an update prompt to be accepted. A manual check is always available in the tray menu and can rediscover a skipped version.
 - Download checks validate size, the EXE header, and the GitHub-provided SHA-256 digest when the release API provides one; this is still not publisher-signature verification.
 - Version 3.3.10 checks destination write access before exiting, replaces the EXE at its existing path, and restores the backup if the new process exits before confirming startup. A still-running process is not killed on a startup timeout; files are retained for diagnosis. There is no separate launcher or .NET runtime.
 
@@ -86,7 +86,7 @@ The tests use temporary settings and controlled OS/network boundaries. On Window
 
 For an opt-in packaged check, run `.\.venv\Scripts\python.exe tests/packaged_update_smoke.py --candidate dist/Binity.exe`. It builds a separate one-file test driver using the unchanged v3.3.7 updater source and the current updater, serves the candidate over loopback, and verifies startup at the original path with isolated settings. It does not automate the old application's UI or touch your running copy. Test artifacts stay under `build/`.
 
-`release_helper.py` is a maintainer publishing tool with external side effects. Use the spec above for local builds.
+`release_helper.py` is retired and only displays a notice: it does not build, read credentials, or modify releases or tags. Use the spec above for local builds.
 
 ## Feedback and license
 

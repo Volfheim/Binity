@@ -126,7 +126,10 @@ def main() -> int:
     app._tray_app = tray_app  # type: ignore[attr-defined]
     _write_ready_flag(update_ready_flag)
 
-    return int(app.exec())
+    try:
+        return int(app.exec())
+    finally:
+        tray_app._task_runner.wait()
 
 
 if __name__ == "__main__":

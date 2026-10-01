@@ -17,6 +17,7 @@ from src.core.updater import UpdateInfo, Updater
 from src.services.autostart import AutostartService
 from src.services.recycle_bin import (
     BinClearResult,
+    RecycleBinInfo,
     RecycleBinService,
     SECURE_DELETE_MODES,
     SECURE_DELETE_OFF,
@@ -64,6 +65,8 @@ class TrayApp(QObject):
         self.current_level = -1
 
         self.tray = QSystemTrayIcon(self)
+        self.tray.setIcon(self.icons[0])
+        self.tray.setToolTip(self.i18n.tr("tooltip_unavailable"))
         self.tray.activated.connect(self._on_tray_activated)
 
         self._about_dialog: AboutDialog | None = None
@@ -73,6 +76,9 @@ class TrayApp(QObject):
 
         self._update_check_in_progress = False
         self._update_download_in_progress = False
+        self._update_apply_in_progress = False
+        self._pending_update_path: Path | None = None
+        self._state_task: BackgroundTask | None = None
         self._update_check_task: BackgroundTask | None = None
         self._update_download_task: BackgroundTask | None = None
         self._update_progress_dialog: DownloadDialog | None = None
@@ -81,9 +87,15 @@ class TrayApp(QObject):
         self.theme_controller.changed.connect(self._on_theme_changed)
 
         self._overflow_notified = False
-        self._thread_pool = QThreadPool.globalInstance()
+        self._thread_pool = QThreadPool(self)
         self._task_runner = BackgroundTaskRunner(self._thread_pool)
         self._shutting_down = False
+        self._shutdown_timer = QTimer(self)
+        self._shutdown_timer.setInterval(50)
+        self._shutdown_timer.timeout.connect(self._finish_shutdown)
+        self._apply_timer = QTimer(self)
+        self._apply_timer.setInterval(100)
+        self._apply_timer.timeout.connect(self._maybe_apply_update)
         self._tray_retry_timer = QTimer(self)
         self._tray_retry_timer.setInterval(5000)
         self._tray_retry_timer.timeout.connect(self._ensure_tray_visible)
@@ -102,7 +114,7 @@ class TrayApp(QObject):
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self._schedule_auto_update_check)
         self.update_timer.start(UPDATE_TIMER_INTERVAL_MS)
-        QTimer.singleShot(5000, lambda: self._check_for_updates(force=True, manual=False))
+        QTimer.singleShot(5000, self._schedule_auto_update_check)
 
         if show_after_update or self.updater.just_updated:
             QTimer.singleShot(
@@ -406,16 +418,22 @@ class TrayApp(QObject):
             self._update_progress_dialog.refresh_texts()
 
     def _refresh_update_action_text(self) -> None:
+        if self._update_apply_in_progress or self._pending_update_path is not None:
+            self.update_now_action.setVisible(True)
+            self.update_now_action.setEnabled(False)
+            self.update_now_action.setText(self.i18n.tr("update_applying") if self._update_apply_in_progress
+                                          else self.i18n.tr("update_waiting"))
+            return
         if self._update_download_in_progress:
             self.update_now_action.setVisible(True)
-            self.update_now_action.setEnabled(True)
+            self.update_now_action.setEnabled(not self._update_check_in_progress)
             return
 
         if self.updater.has_update:
             version = self.updater.update_version.lstrip("vV")
             self.update_now_action.setText(self.i18n.tr("update_now").format(version=version))
             self.update_now_action.setVisible(True)
-            self.update_now_action.setEnabled(True)
+            self.update_now_action.setEnabled(not self._update_check_in_progress)
         else:
             self.update_now_action.setVisible(False)
             self.update_now_action.setEnabled(False)
@@ -520,6 +538,7 @@ class TrayApp(QObject):
     def _on_theme_changed(self, theme: str) -> None:
         self.current_theme = theme
         self.icons = self._load_icons(self.current_theme)
+        self.tray.setIcon(self.icons.get(self.current_level, self.icons[0]))
         self.current_level = -1
 
         for dialog in (self._about_dialog, self._confirm_dialog):
@@ -545,10 +564,25 @@ class TrayApp(QObject):
             self._overflow_notified = False
 
     def _refresh_state(self) -> None:
-        if self._shutting_down:
+        if (self._shutting_down or self._state_task is not None or self._clear_in_progress
+                or self._update_apply_in_progress or self._pending_update_path is not None):
             return
 
-        info = self.recycle_bin.get_info()
+        self._state_task = self._task_runner.start(
+            lambda _progress: (self.recycle_bin.get_info(), self.autostart.is_enabled()),
+            self._on_state_finished,
+        )
+
+    def _on_state_finished(self, result: TaskResult) -> None:
+        self._state_task = None
+        if self._shutting_down:
+            return
+        info = RecycleBinInfo(0, 0, available=False)
+        if result.ok:
+            info, autostart_enabled = result.value
+            self.autostart_action.blockSignals(True)
+            self.autostart_action.setChecked(autostart_enabled)
+            self.autostart_action.blockSignals(False)
         if not info.available:
             self.tray.setToolTip(self.i18n.tr("tooltip_unavailable"))
             return
@@ -560,10 +594,6 @@ class TrayApp(QObject):
 
         tooltip = self.i18n.tr("tooltip_template").format(size=format_size(info.size_bytes))
         self.tray.setToolTip(tooltip)
-
-        self.autostart_action.blockSignals(True)
-        self.autostart_action.setChecked(self.autostart.is_enabled())
-        self.autostart_action.blockSignals(False)
 
         self._handle_overflow_notification(info.size_bytes)
 
@@ -635,7 +665,7 @@ class TrayApp(QObject):
     def _on_autostart_toggled(self, enabled: bool) -> None:
         success = self.autostart.set_enabled(bool(enabled))
         if not success:
-            self._show_error(self.i18n.tr("autostart_disabled"))
+            self._show_error(self.i18n.tr("error_autostart"))
             self._apply_menu_state()
             return
 
@@ -651,11 +681,13 @@ class TrayApp(QObject):
             self.open_bin()
 
     def open_bin(self) -> None:
+        if self._shutting_down:
+            return
         if not self.recycle_bin.open_bin():
             self._show_error(self.i18n.tr("error_open_failed"))
 
     def clear_bin(self) -> None:
-        if self._clear_in_progress:
+        if self._shutting_down or self._clear_in_progress or self._update_apply_in_progress:
             return
 
         if self.settings.confirm_clear:
@@ -672,11 +704,16 @@ class TrayApp(QObject):
                 if self._confirm_dialog.exec() != QDialog.DialogCode.Accepted:
                     return
             finally:
+                self._confirm_dialog.deleteLater()
                 self._confirm_dialog = None
 
+        if self._shutting_down:
+            return
         self._start_clear_task(self.settings.secure_delete_mode)
 
     def _start_clear_task(self, secure_mode: str) -> None:
+        if self._shutting_down or self._clear_in_progress or self._update_apply_in_progress:
+            return
         self._clear_in_progress = True
         self.clear_action.setEnabled(False)
         self.double_click_clear_action.setEnabled(False)
@@ -721,20 +758,25 @@ class TrayApp(QObject):
             if result.wipe_failures > 0:
                 message = f"{message}\n{self.i18n.tr('secure_clear_partial_message').format(failed=result.wipe_failures)}"
 
-        self.tray.showMessage(self.i18n.tr("app_name"), message, QSystemTrayIcon.MessageIcon.Information, 3500)
+        severity = (QSystemTrayIcon.MessageIcon.Warning if result.wipe_failures
+                    else QSystemTrayIcon.MessageIcon.Information)
+        self.tray.showMessage(self.i18n.tr("app_name"), message, severity, 5000 if result.wipe_failures else 3500)
         self._refresh_state()
 
     def _schedule_auto_update_check(self) -> None:
-        if not self.settings.auto_check_updates:
+        if self._shutting_down or not self.settings.auto_check_updates:
             return
         self._check_for_updates(force=False, manual=False)
 
     def _check_for_updates(self, force: bool, manual: bool) -> None:
-        if self._update_check_in_progress or self._update_download_in_progress:
+        if (self._shutting_down or self._update_check_in_progress or self._update_download_in_progress
+                or self._update_apply_in_progress or self._pending_update_path is not None
+                or self._update_dialog is not None):
             return
 
         self._update_check_in_progress = True
         self.check_updates_action.setEnabled(False)
+        self.update_now_action.setEnabled(False)
 
         if manual:
             self.tray.showMessage(
@@ -796,7 +838,8 @@ class TrayApp(QObject):
             info_box.exec()
 
     def _show_update_dialog(self) -> None:
-        if self._shutting_down:
+        if (self._shutting_down or self._update_check_in_progress or self._update_apply_in_progress
+                or self._pending_update_path is not None):
             return
         if self._update_download_in_progress:
             if self._update_progress_dialog:
@@ -809,9 +852,10 @@ class TrayApp(QObject):
             self._check_for_updates(force=True, manual=True)
             return
 
-        release_notes = self._format_release_notes(self.updater.update_body)
+        info = self.updater.info
+        release_notes = self._format_release_notes(info.body)
         dialog = UpdateDialog(
-            self.i18n, self.updater.update_version, release_notes, self._window_icon(),
+            self.i18n, info.version, release_notes, self._window_icon(),
         )
         self._update_dialog = dialog
         try:
@@ -823,16 +867,18 @@ class TrayApp(QObject):
         if self._shutting_down:
             return
         if result == QDialog.DialogCode.Accepted:
-            self._start_update_download()
+            self._start_update_download(info)
         elif result == UpdateDialog.SKIP_VERSION:
-            self.updater.skip_version()
+            self.updater.skip_version(info)
             self._update_notified_version = ""
             self._refresh_update_action_text()
 
-    def _start_update_download(self) -> None:
-        if self._update_download_in_progress:
+    def _start_update_download(self, info: UpdateInfo | None = None) -> None:
+        if (self._shutting_down or self._update_download_in_progress or self._update_check_in_progress
+                or self._update_apply_in_progress or self._pending_update_path is not None):
             return
-        if not self.updater.has_update:
+        info = info or self.updater.info
+        if info is None:
             return
 
         self._update_download_in_progress = True
@@ -850,7 +896,7 @@ class TrayApp(QObject):
         )
 
         def download_release(progress: Callable[[int], None]) -> tuple[str, str]:
-            downloaded = self.updater.download_update(on_progress=progress)
+            downloaded = self.updater.download_update(on_progress=progress, info=info)
             return str(downloaded) if downloaded else "", str(self.updater.last_error or "")
 
         self._update_download_task = self._task_runner.start(
@@ -890,6 +936,24 @@ class TrayApp(QObject):
             self._show_error(message)
             return
 
+        self._pending_update_path = Path(downloaded_path)
+        self.check_updates_action.setEnabled(False)
+        self._refresh_update_action_text()
+        self._apply_timer.start()
+        if self._clear_in_progress or self._confirm_dialog is not None:
+            self.tray.showMessage(self.i18n.tr("app_name"), self.i18n.tr("update_waiting"),
+                                  QSystemTrayIcon.MessageIcon.Information, 3500)
+
+    def _maybe_apply_update(self) -> None:
+        if (self._shutting_down or self._pending_update_path is None or self._clear_in_progress
+                or self._confirm_dialog is not None or self._task_runner.busy):
+            return
+        path = self._pending_update_path
+        self._pending_update_path = None
+        self._update_apply_in_progress = True
+        self._apply_timer.stop()
+        self.clear_action.setEnabled(False)
+        self._refresh_update_action_text()
         self.tray.showMessage(
             self.i18n.tr("app_name"),
             self.i18n.tr("update_applying"),
@@ -897,10 +961,23 @@ class TrayApp(QObject):
             2500,
         )
 
-        if not self.updater.apply_update(Path(downloaded_path)):
+        def apply(_progress):
+            success = self.updater.apply_update(path)
+            return success, self.updater.last_error
+
+        self._task_runner.start(apply, self._on_update_apply_finished)
+
+    def _on_update_apply_finished(self, result: TaskResult) -> None:
+        self._update_apply_in_progress = False
+        if self._shutting_down:
+            return
+        success, error = result.value if result.ok else (False, result.error)
+        if not success:
             message = self.i18n.tr("error_update_apply")
-            if self.updater.last_error:
-                message = f"{message}\n{self.updater.last_error}"
+            if error:
+                message = f"{message}\n{error}"
+            self.check_updates_action.setEnabled(True)
+            self.clear_action.setEnabled(True)
             self._refresh_update_action_text()
             self._show_error(message)
             return
@@ -908,28 +985,44 @@ class TrayApp(QObject):
         self.quit_app()
 
     def show_about(self) -> None:
+        if self._shutting_down:
+            return
         if self._about_dialog is None:
             self._about_dialog = AboutDialog(self.i18n, theme=self.current_theme)
 
         self._about_dialog.set_theme(self.current_theme)
         self._about_dialog.refresh_texts()
-        self._about_dialog.show()
-        self._about_dialog.raise_()
-        self._about_dialog.activateWindow()
+        self._focus_dialog(self._about_dialog)
 
     def quit_app(self) -> None:
         if self._shutting_down:
             return
 
         self._shutting_down = True
+        self._task_runner.stop_accepting()
         self.timer.stop()
         self.update_timer.stop()
         self._tray_retry_timer.stop()
+        self._apply_timer.stop()
+        self.menu.setEnabled(False)
+        if self._confirm_dialog:
+            self._confirm_dialog.reject()
+        if self._about_dialog:
+            self._about_dialog.hide()
         if self._update_dialog:
             self._update_dialog.reject()
         self._close_update_progress_dialog()
+        if self._task_runner.busy:
+            self.tray.setToolTip(self.i18n.tr("shutdown_waiting"))
+            self.tray.showMessage(self.i18n.tr("app_name"), self.i18n.tr("shutdown_waiting"),
+                                  QSystemTrayIcon.MessageIcon.Information, 4000)
+        self._shutdown_timer.start()
+
+    def _finish_shutdown(self) -> None:
+        if self._task_runner.busy:
+            return
+        self._shutdown_timer.stop()
         self.tray.hide()
-        from PyQt6.QtWidgets import QApplication
 
         app = QApplication.instance()
         if app is not None:

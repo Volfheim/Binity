@@ -48,6 +48,21 @@ class BackgroundTaskRunner:
 
     def __init__(self, pool: QThreadPool | None = None) -> None:
         self.pool = pool if pool is not None else QThreadPool.globalInstance()
+        self._tasks: set[BackgroundTask] = set()
+        self._accepting = True
+
+    @property
+    def busy(self) -> bool:
+        return bool(self._tasks) or self.pool.activeThreadCount() > 0
+
+    def stop_accepting(self) -> None:
+        self._accepting = False
+
+    def wait(self) -> None:
+        # Fallback for external QApplication.quit/session shutdown: retain signals
+        # and callbacks until all runnables return, before Qt is destroyed.
+        self.stop_accepting()
+        self.pool.waitForDone()
 
     def start(
         self,
@@ -55,8 +70,18 @@ class BackgroundTaskRunner:
         finished: Callable[[TaskResult], None],
         progress: Callable[[int], None] | None = None,
     ) -> BackgroundTask:
+        if not self._accepting:
+            raise RuntimeError("Background runner is shutting down")
         task = BackgroundTask(work)
-        task.signals.finished.connect(finished)
+        self._tasks.add(task)
+
+        def deliver(result: TaskResult) -> None:
+            try:
+                finished(result)
+            finally:
+                self._tasks.discard(task)
+
+        task.signals.finished.connect(deliver)
         if progress is not None:
             task.signals.progress.connect(progress)
         self.pool.start(task)

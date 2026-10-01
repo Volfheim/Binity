@@ -36,13 +36,14 @@ class AutostartService:
             startup_dir / "Binity Autostart.cmd",
         ]
 
-    def _cleanup_legacy_startup_files(self) -> None:
+    def _cleanup_legacy_startup_files(self) -> bool:
+        success = True
         for path in self._legacy_startup_paths():
             try:
-                if path.exists():
-                    path.unlink()
-            except Exception:
-                pass
+                path.unlink(missing_ok=True)
+            except OSError:
+                success = False
+        return success
 
     @staticmethod
     def _extract_executable_path(command: str) -> str:
@@ -85,13 +86,11 @@ class AutostartService:
                 return False
         return True
 
-    def is_enabled(self) -> bool:
+    def _run_key_enabled(self) -> bool:
         if os.name != "nt":
             return False
 
         import winreg
-
-        self._cleanup_legacy_startup_files()
 
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
@@ -105,13 +104,17 @@ class AutostartService:
         except OSError:
             return False
 
+    def is_enabled(self) -> bool:
+        if os.name != "nt":
+            return False
+        # Observing startup state must never delete a legacy startup entry.
+        return self._run_key_enabled() or any(path.is_file() for path in self._legacy_startup_paths())
+
     def set_enabled(self, enabled: bool) -> bool:
         if os.name != "nt":
             return False
 
         import winreg
-
-        self._cleanup_legacy_startup_files()
 
         try:
             with winreg.CreateKeyEx(
@@ -127,8 +130,12 @@ class AutostartService:
                         winreg.DeleteValue(key, APP_NAME)
                     except FileNotFoundError:
                         pass
+            if enabled and not self._run_key_enabled():
+                return False
+            if not self._cleanup_legacy_startup_files():
+                return False
             if enabled:
-                return self.is_enabled()
+                return self._run_key_enabled()
             return not self.is_enabled()
         except OSError:
             return False

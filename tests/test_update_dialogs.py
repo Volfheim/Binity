@@ -11,6 +11,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget
 
 from src.core.i18n import I18n
+from src.core.updater import UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog
 from src.ui.tray.tray_app import TrayApp
 from src.ui.wave_progress import WaveProgressBar
@@ -195,6 +196,7 @@ class UpdateDialogTests(unittest.TestCase):
         dialog = self.prompt()
         controller = SimpleNamespace(
             _shutting_down=False, _update_download_in_progress=False,
+            _update_check_in_progress=False, _update_apply_in_progress=False, _pending_update_path=None,
             _update_dialog=dialog, _focus_dialog=Mock(),
         )
         with patch("src.ui.tray.tray_app.UpdateDialog") as constructor:
@@ -206,7 +208,8 @@ class UpdateDialogTests(unittest.TestCase):
         for result in (QDialog.DialogCode.Accepted, UpdateDialog.SKIP_VERSION, QDialog.DialogCode.Rejected):
             controller = SimpleNamespace(
                 _shutting_down=False, _update_download_in_progress=False, _update_dialog=None,
-                i18n=I18n("RU"), updater=Mock(has_update=True, update_body="Notes", update_version="v9.0"),
+                _update_check_in_progress=False, _update_apply_in_progress=False, _pending_update_path=None,
+                i18n=I18n("RU"), updater=Mock(has_update=True, info=UpdateInfo("v9.0", "", "Notes", "", 0)),
                 _format_release_notes=lambda notes: notes, _window_icon=lambda: QIcon(),
                 _start_update_download=Mock(), _refresh_update_action_text=Mock(),
                 _update_notified_version="v9.0",
