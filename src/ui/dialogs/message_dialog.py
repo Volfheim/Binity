@@ -87,7 +87,7 @@ class MessageDialog(RoundedDialog):
         self.ok_button = QPushButton("OK", self)
         self.ok_button.setProperty("role", "primary")
         self.ok_button.setMinimumWidth(92)
-        self.ok_button.setDefault(True)
+        self.set_initial_button(self.ok_button)
         self.ok_button.clicked.connect(self.accept)
         self.body_layout.addWidget(self.ok_button, alignment=Qt.AlignmentFlag.AlignRight)
         self.refresh_texts()

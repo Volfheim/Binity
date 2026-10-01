@@ -47,6 +47,7 @@ class AboutDialog(RoundedDialog):
         self.close_btn = QPushButton()
         self.close_btn.setMinimumWidth(136)
         self.close_btn.clicked.connect(self.close)
+        self.set_initial_button(self.close_btn)
         self.root.addWidget(self.close_btn, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.root.addStretch(1)
         self.set_theme(theme)

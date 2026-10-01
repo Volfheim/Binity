@@ -4,7 +4,7 @@ from __future__ import annotations
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt
 from PyQt6.QtGui import QColor, QIcon, QLinearGradient, QPainter, QPalette, QPen
 from PyQt6.QtWidgets import (
-    QAbstractButton, QApplication, QDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QAbstractButton, QApplication, QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
 from src.core.i18n import I18n
@@ -126,6 +126,7 @@ class RoundedDialog(QDialog):
 
     def __init__(self, i18n: I18n, theme: str | None = None, parent=None) -> None:
         super().__init__(parent)
+        self._initial_button: QPushButton | None = None
         self.i18n = i18n
         self.theme = theme or application_theme(QApplication.instance())
         self.colors = dialog_colors(self.theme)
@@ -151,6 +152,18 @@ class RoundedDialog(QDialog):
         app = QApplication.instance()
         app.paletteChanged.connect(self._follow_application_theme)
         app.styleHints().colorSchemeChanged.connect(self._follow_application_theme)
+
+    def set_initial_button(self, button: QPushButton) -> None:
+        self._initial_button = button
+        button.setDefault(True)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Reset only on opening/reopening, not on native restore or activation.
+        # Otherwise Qt picks the first title-bar button or restores the clicked X.
+        button = self._initial_button
+        if not event.spontaneous() and button is not None and button.isEnabled() and button.isVisible():
+            button.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _follow_application_theme(self, _value=None) -> None:
         theme = application_theme(QApplication.instance())

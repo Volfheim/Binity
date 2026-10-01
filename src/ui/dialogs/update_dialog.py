@@ -74,7 +74,7 @@ class UpdateDialog(RoundedDialog):
         self.install_button.clicked.connect(self.accept)
         self.skip_button.clicked.connect(lambda: self.done(self.SKIP_VERSION))
         self.later_button.clicked.connect(self.reject)
-        self.install_button.setDefault(True)
+        self.set_initial_button(self.later_button)
         root.addLayout(buttons)
         self.refresh_texts()
         self.resize(500, self.sizeHint().height())

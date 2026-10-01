@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt, QTimer
 from PyQt6.QtGui import QIcon, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
@@ -47,6 +47,138 @@ class RoundedDialogTests(unittest.TestCase):
                 UpdateDialog(self.i18n, "v9.0.0", "Notes", QIcon()),
                 DownloadDialog(self.i18n, QIcon()),
                 MessageDialog(self.i18n, "Binity", "Message", QMessageBox.Icon.Warning)]
+
+    def focus_dialog(self, dialog):
+        # Exercise real Qt focus without activating a native window on the desktop.
+        QApplication.setActiveWindow(dialog)
+        self.app.processEvents()
+
+    def initial_button(self, dialog):
+        attribute = {AboutDialog: "close_btn", ConfirmDialog: "cancel_btn",
+                     UpdateDialog: "later_button", DownloadDialog: "hide_button",
+                     MessageDialog: "ok_button"}[type(dialog)]
+        return getattr(dialog, attribute)
+
+    def test_initial_and_reopened_focus_is_on_safe_content_action_not_title_bar(self):
+        for language in ("RU", "EN"):
+            self.i18n = I18n(language)
+            for theme in ("dark", "light"):
+                for dialog in self.all_dialogs():
+                    with self.subTest(language=language, theme=theme, dialog=type(dialog).__name__):
+                        self.show(dialog)
+                        dialog.set_theme(theme)
+                        self.focus_dialog(dialog)
+                        expected = self.initial_button(dialog)
+                        self.assertIs(dialog.focusWidget(), expected)
+                        self.assertTrue(expected.hasFocus())
+                        for control in (dialog.title_bar.minimize_button, dialog.title_bar.close_button):
+                            control.setFocus(Qt.FocusReason.TabFocusReason)
+                            self.assertTrue(control.hasFocus())
+                            dialog.hide()
+                            dialog.show()
+                            self.focus_dialog(dialog)
+                            self.assertIs(dialog.focusWidget(), expected)
+                            self.assertFalse(control.hasFocus())
+                        dialog.hide()
+
+    def test_initial_enter_and_space_never_confirm_deletion_or_installation(self):
+        for constructor in (lambda: ConfirmDialog(self.i18n),
+                            lambda: UpdateDialog(self.i18n, "v9.0", "Notes", QIcon())):
+            for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                dialog = self.show(constructor())
+                self.focus_dialog(dialog)
+                accepted = Mock()
+                dialog.accepted.connect(accepted)
+                with self.subTest(dialog=type(dialog).__name__, key=key):
+                    QTest.keyClick(dialog.focusWidget(), key)
+                    self.assertFalse(dialog.isVisible())
+                    self.assertEqual(dialog.result(), QDialog.DialogCode.Rejected)
+                    accepted.assert_not_called()
+
+    def test_tab_navigation_still_reaches_every_action_including_window_controls(self):
+        for dialog in self.all_dialogs():
+            self.show(dialog)
+            self.focus_dialog(dialog)
+            initial = self.initial_button(dialog)
+            with self.subTest(dialog=type(dialog).__name__):
+                self.assertIs(dialog.focusWidget(), initial)
+                visited = []
+                for _ in range(20):
+                    visited.append(dialog.focusWidget())
+                    QTest.keyClick(dialog.focusWidget(), Qt.Key.Key_Tab)
+                    if dialog.focusWidget() is initial:
+                        break
+                self.assertIs(dialog.focusWidget(), initial)
+                self.assertIn(dialog.title_bar.minimize_button, visited)
+                self.assertIn(dialog.title_bar.close_button, visited)
+                if isinstance(dialog, ConfirmDialog):
+                    self.assertIn(dialog.confirm_btn, visited)
+                elif isinstance(dialog, UpdateDialog):
+                    self.assertIn(dialog.details_button, visited)
+                    self.assertIn(dialog.install_button, visited)
+                    self.assertIn(dialog.skip_button, visited)
+                elif isinstance(dialog, AboutDialog):
+                    self.assertIn(dialog.github_btn, visited)
+                QTest.keyClick(initial, Qt.Key.Key_Tab, Qt.KeyboardModifier.ShiftModifier)
+                self.assertIs(dialog.focusWidget(), visited[-1])
+                dialog.hide()
+
+    def test_explicitly_focused_confirm_and_install_actions_still_work_from_keyboard(self):
+        for constructor, attribute in ((lambda: ConfirmDialog(self.i18n), "confirm_btn"),
+                                       (lambda: UpdateDialog(self.i18n, "v9.0", "Notes", QIcon()),
+                                        "install_button")):
+            for key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                dialog = self.show(constructor())
+                self.focus_dialog(dialog)
+                button = getattr(dialog, attribute)
+                button.setFocus(Qt.FocusReason.TabFocusReason)
+                with self.subTest(dialog=type(dialog).__name__, key=key):
+                    QTest.keyClick(button, key)
+                    self.assertFalse(dialog.isVisible())
+                    self.assertEqual(dialog.result(), QDialog.DialogCode.Accepted)
+
+    def test_visible_dialog_keeps_user_focus_when_refreshed_or_shown_again(self):
+        dialog = self.show(UpdateDialog(self.i18n, "v9.0", "Notes", QIcon()))
+        self.focus_dialog(dialog)
+        dialog.details_button.setFocus(Qt.FocusReason.TabFocusReason)
+        QTest.keyClick(dialog.details_button, Qt.Key.Key_Return)
+        self.assertFalse(dialog.details_panel.isHidden())
+        dialog.i18n.set_language("EN")
+        dialog.refresh_texts()
+        dialog.set_theme("light")
+        dialog.show()
+        self.app.processEvents()
+        self.assertIs(dialog.focusWidget(), dialog.details_button)
+        self.assertTrue(dialog.isVisible())
+
+    def test_modal_exec_uses_safe_initial_action(self):
+        for dialog in (ConfirmDialog(self.i18n), UpdateDialog(self.i18n, "v9.0", "Notes", QIcon())):
+            self.dialogs.append(dialog)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+            focused = []
+
+            def dismiss():
+                self.focus_dialog(dialog)
+                focused.append(dialog.focusWidget())
+                QTest.keyClick(dialog.focusWidget(), Qt.Key.Key_Return)
+                dialog.hide()
+
+            QTimer.singleShot(0, dismiss)
+            result = dialog.exec()
+            with self.subTest(dialog=type(dialog).__name__):
+                self.assertEqual(focused, [self.initial_button(dialog)])
+                self.assertEqual(result, QDialog.DialogCode.Rejected)
+
+    def test_minimize_and_restore_preserve_explicit_keyboard_focus(self):
+        dialog = self.show(ConfirmDialog(self.i18n))
+        self.focus_dialog(dialog)
+        dialog.confirm_btn.setFocus(Qt.FocusReason.TabFocusReason)
+        dialog.showMinimized()
+        self.app.processEvents()
+        dialog.showNormal()
+        self.focus_dialog(dialog)
+        self.assertIs(dialog.focusWidget(), dialog.confirm_btn)
+        self.assertTrue(dialog.isVisible())
 
     def test_all_windows_have_real_transparent_corners_and_no_native_caption(self):
         for dialog in self.all_dialogs():

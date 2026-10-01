@@ -38,6 +38,7 @@ class DownloadDialog(RoundedDialog):
         self.body_layout.addWidget(self.bar)
         self.hide_button = QPushButton()
         self.hide_button.clicked.connect(self.hide)
+        self.set_initial_button(self.hide_button)
         self.body_layout.addWidget(self.hide_button, alignment=Qt.AlignmentFlag.AlignRight)
         self.refresh_texts()
         self.resize(460, self.sizeHint().height())
