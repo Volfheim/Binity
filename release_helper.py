@@ -20,6 +20,7 @@ RELEASES = [
 This maintenance release repairs the Windows update helper while keeping Binity a single portable EXE. The interface and tray icons are unchanged.
 
 ### Fixes
+- Isolated DLL discovery during packaging so unrelated tools on the build machine cannot shadow Windows ICU and prevent Qt from starting.
 - Fixed the PowerShell process-ID parameter conflict that stopped update installation.
 - Removed the helper's dependency on `Get-FileHash` module discovery and loaded the command encoding at application startup.
 - Check destination write access and copy integrity before closing Binity.
@@ -38,6 +39,7 @@ This maintenance release repairs the Windows update helper while keeping Binity 
 Этот корректирующий выпуск исправляет Windows-helper обновления, сохраняя Binity в виде одного portable EXE. Интерфейс и значки трея не изменены.
 
 ### Исправления
+- Изолирован поиск DLL при сборке: библиотеки посторонних инструментов больше не подменяют Windows ICU и не мешают запуску Qt.
 - Устранён конфликт параметра идентификатора процесса PowerShell, который останавливал установку обновления.
 - Убрана зависимость helper от поиска модуля `Get-FileHash`; кодировка команды загружается при старте приложения.
 - Возможность записи в папку назначения и целостность копии проверяются до закрытия Binity.

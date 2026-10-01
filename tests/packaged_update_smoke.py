@@ -107,6 +107,15 @@ def main():
     candidate = args.candidate.resolve(strict=True)
     assert os.name == "nt"
     from src.version import __version__
+    from PyInstaller.archive.readers import CArchiveReader
+
+    archive = CArchiveReader(str(candidate))
+    # Qt uses Windows ICU. A foreign copy from PATH can break DLL loading.
+    assert not any(Path(name).name.lower().startswith("icu") and name.endswith(".dll")
+                   for name in archive.toc), "Unexpected bundled ICU library"
+    modules = archive.open_embedded_archive("PYZ.pyz").toc
+    assert not any(name.split(".")[0] in {"tests", "psutil", "legacy_updater"}
+                   for name in modules), "Test dependencies included in application"
 
     output = ROOT / "build" / ("packaged-smoke-" + uuid.uuid4().hex)
     output.mkdir(parents=True)
@@ -167,7 +176,8 @@ def main():
                 "language": "EN", "auto_check_updates": False, "clear_sound": "off",
                 "overflow_notify_enabled": False}), encoding="utf-8")
             env = dict(os.environ, APPDATA=str(roaming), LOCALAPPDATA=str(local),
-                TEMP=str(temporary), TMP=str(temporary), QT_QPA_PLATFORM="offscreen",
+                TEMP=str(temporary), TMP=str(temporary),
+                QT_QPA_PLATFORM="windows" if mode == "startup" else "offscreen",
                 PYINSTALLER_RESET_ENVIRONMENT="1", BINITY_SMOKE_ROOT=str(case),
                 BINITY_SMOKE_MODE=mode, BINITY_SMOKE_API=endpoint + "/latest")
             env = {k: v for k, v in env.items() if not k.upper().startswith("_PYI_") and k.upper() != "_MEIPASS2"}
@@ -196,6 +206,7 @@ def main():
                     wait_until((local / "Binity" / "updates" / "applied.flag").is_file)
                     assert digest(installed) == candidate_hash
                     assert not list((local / "Binity" / "updates").glob("next-*.exe"))
+                time.sleep(2)
                 assert matching_processes(installed), "New EXE is not running at the installed path"
                 assert not (local / "Binity" / "crash.log").exists(), "Application crash log created"
                 results["cases"].append({"mode": mode, "installed_sha256": digest(installed), "startup_ack": True})
