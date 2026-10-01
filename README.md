@@ -10,13 +10,13 @@ A small Windows tray utility to see, open, and empty your Recycle Bin.
 
 [**Download Binity**](https://github.com/Volfheim/Binity/releases/latest) · [Release notes](https://github.com/Volfheim/Binity/releases) · [Report an issue](https://github.com/Volfheim/Binity/issues)
 
-**Windows · x64 release · Python + PyQt6**
+**Windows 10 (1809+) / 11 · x64 release · Python + PyQt6**
 
 </div>
 
 ![Binity tray menu, settings, confirmation and About dialog in English](docs/images/main-window.png)
 
-<sub>Real v3.3.7 Qt widgets rendered from source with isolated example settings, arranged together for this overview. Native menu appearance can vary with Windows. No files were deleted to make this image.</sub>
+<sub>Real v3.3.8 Qt widgets rendered from source with isolated example settings, arranged together for this overview. Native menu appearance can vary with Windows. No files were deleted to make this image.</sub>
 
 ## Small icon. Everyday control.
 
@@ -52,11 +52,11 @@ Normal emptying uses the Windows Recycle Bin operation. Confirmation is enabled 
 - Crash log, if an unhandled error occurs: `%LOCALAPPDATA%\Binity\crash.log`.
 - Update staging and diagnostics: `%LOCALAPPDATA%\Binity\updates\`.
 - Packaged builds check GitHub Releases at launch and periodically; downloads and installation require an update prompt to be accepted. A manual check is available in the tray menu. The startup check runs even if background auto-checks are disabled in the current version.
-- Download checks validate size and the EXE header; they are not publisher-signature verification.
+- Download checks validate size, the EXE header, and the GitHub-provided SHA-256 digest when the release API provides one; this is still not publisher-signature verification.
 
 ## Run from source
 
-Use **Windows and Python 3.10+**. The pinned build below was verified on **Windows 11 x64 with CPython 3.13.3**.
+Use **Windows 10 version 1809 or newer, Windows 11, and Python 3.10+**. The current Qt 6 build is x64; Windows 7, Windows 8.1, 32-bit Windows, and ARM64EC are not supported by this release. The pinned build below was verified on **Windows 11 x64 with CPython 3.13.3**.
 
 ```powershell
 git clone https://github.com/Volfheim/Binity.git

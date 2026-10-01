@@ -6,13 +6,21 @@ from PyQt6.QtWidgets import QApplication, QDialog, QHBoxLayout, QLabel, QPushBut
 
 from src.core.i18n import I18n
 from src.core.resources import resource_path
+from src.services.system_theme import THEME_DARK, THEME_LIGHT
 
 
 class ConfirmDialog(QDialog):
-    def __init__(self, i18n: I18n, message_override: str | None = None, parent=None) -> None:
+    def __init__(
+        self,
+        i18n: I18n,
+        message_override: str | None = None,
+        theme: str = THEME_DARK,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self.i18n = i18n
         self._message_override = message_override
+        self.theme = THEME_DARK
 
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setModal(True)
@@ -24,24 +32,6 @@ class ConfirmDialog(QDialog):
             app_icon = QIcon(resource_path("icons/bin_full.ico"))
         if not app_icon.isNull():
             self.setWindowIcon(app_icon)
-
-        self.setStyleSheet(
-            """
-            QDialog { background: #171a23; color: #f3f4f6; }
-            QLabel { color: #e5e7eb; font-size: 13px; }
-            QPushButton {
-                border-radius: 8px;
-                padding: 8px 16px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton#confirmBtn { background: #ef4444; color: #ffffff; border: none; }
-            QPushButton#confirmBtn:hover { background: #dc2626; }
-            QPushButton#cancelBtn { background: transparent; color: #cbd5e1; border: 1px solid #475569; }
-            QPushButton#cancelBtn:hover { background: #1e293b; }
-            QPushButton:focus { border: 1px solid #60a5fa; }
-            """
-        )
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 16)
@@ -70,7 +60,40 @@ class ConfirmDialog(QDialog):
         buttons.addWidget(self.confirm_btn)
 
         root.addLayout(buttons)
+        self.set_theme(theme)
         self.refresh_texts()
+
+    def set_theme(self, theme: str) -> None:
+        candidate = str(theme or THEME_DARK).lower()
+        if candidate not in (THEME_DARK, THEME_LIGHT):
+            candidate = THEME_DARK
+        self.theme = candidate
+
+        if candidate == THEME_LIGHT:
+            style = """
+                QDialog { background: #f7f9fc; color: #162033; }
+                QLabel { color: #26344d; font-size: 13px; }
+                QLabel#title_label { color: #0f172a; }
+                QPushButton { border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 600; }
+                QPushButton#confirmBtn { background: #c9364d; color: #ffffff; border: none; }
+                QPushButton#confirmBtn:hover { background: #aa2940; }
+                QPushButton#cancelBtn { background: transparent; color: #334155; border: 1px solid #a8b4c7; }
+                QPushButton#cancelBtn:hover { background: #e8eef7; }
+                QPushButton:focus { border: 1px solid #3b82f6; }
+            """
+        else:
+            style = """
+                QDialog { background: #111827; color: #f3f4f6; }
+                QLabel { color: #d8e1ee; font-size: 13px; }
+                QLabel#title_label { color: #f8fafc; }
+                QPushButton { border-radius: 8px; padding: 8px 16px; font-size: 12px; font-weight: 600; }
+                QPushButton#confirmBtn { background: #dc5368; color: #ffffff; border: none; }
+                QPushButton#confirmBtn:hover { background: #bb3b51; }
+                QPushButton#cancelBtn { background: transparent; color: #c8d3e2; border: 1px solid #4b5c73; }
+                QPushButton#cancelBtn:hover { background: #202c3f; }
+                QPushButton:focus { border: 1px solid #6ea8fe; }
+            """
+        self.setStyleSheet(style)
 
     def refresh_texts(self) -> None:
         title = self.i18n.tr("confirm_dialog_title")

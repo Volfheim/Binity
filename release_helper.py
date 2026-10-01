@@ -13,18 +13,22 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
-        "tag": "v3.3.7",
-        "prev": "v3.3.6",
-        "name": "Binity v3.3.7",
-        "body": """## ⚙️ Settings & Updates (v3.3.7)
-Reorganized settings menu and improved update checking.
+        "tag": "v3.3.8",
+        "prev": "v3.3.7",
+        "name": "Binity v3.3.8",
+        "body": """## 🛠️ Architecture & Update Reliability (v3.3.8)
+Обновлена внутренняя архитектура приложения и усилена надёжность автообновления.
 
-### ✨ Features
-- **Settings**: Added \"Windows\" submenu grouping autostart, overflow notification, and theme sync settings.
-- **Updates**: App now checks for updates on every launch (with 24h cooldown for background rechecks).
+### ✨ Изменения
+- **Архитектура**: Общий исполнитель фоновых задач на базе `QThreadPool` без блокировки интерфейса.
+- **Настройки**: Нормализация, атомарное сохранение и восстановление повреждённого файла настроек.
+- **Автообновление**: Проверка размера, EXE-заголовка и SHA-256, отдельный PowerShell-помощник для безопасной замены запущенного EXE.
+- **Корзина**: Безопаснее обработаны вложенные заблокированные каталоги.
+- **Проверки**: Добавлены регрессионные тесты для фоновых задач, настроек, корзины и updater.
 
-### 🔧 Improvements
-- **UX**: Cleaner settings menu layout with logical grouping.
+### 📝 Notes
+- **Compatibility**: Windows 10 version 1809+ and Windows 11 x64.
+- **Безопасность**: Проверка SHA-256 подтверждает целостность загруженного файла, но не заменяет цифровую подпись издателя.
 """
     },
     {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QIcon, QPixmap
+from PyQt6.QtGui import QDesktopServices, QIcon
 from PyQt6.QtWidgets import QDialog, QLabel, QPushButton, QToolButton, QVBoxLayout
 
 from src.core.i18n import I18n
@@ -23,8 +23,7 @@ class AboutDialog(QDialog):
         self.setModal(False)
         self.setFixedSize(360, 520)
 
-        icon_path = resource_path("icons/bin_full.ico")
-        self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(self._bin_icon(theme))
 
         self.root = QVBoxLayout(self)
         self.root.setContentsMargins(24, 24, 24, 24)
@@ -34,11 +33,6 @@ class AboutDialog(QDialog):
 
         self.logo_label = QLabel()
         self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_pixmap = QPixmap(resource_path("icons/bin_full.ico"))
-        if not logo_pixmap.isNull():
-            self.logo_label.setPixmap(
-                logo_pixmap.scaled(110, 110, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            )
         self.root.addWidget(self.logo_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.title_label = QLabel(__app_name__)
@@ -98,6 +92,10 @@ class AboutDialog(QDialog):
         if candidate not in (THEME_DARK, THEME_LIGHT):
             candidate = THEME_DARK
         self.theme = candidate
+        bin_icon = self._bin_icon(candidate)
+        self.setWindowIcon(bin_icon)
+        logo_pixmap = bin_icon.pixmap(QSize(110, 110))
+        self.logo_label.setPixmap(logo_pixmap)
 
         if candidate == THEME_LIGHT:
             icon_name = "icons/github_dark.svg"
@@ -216,6 +214,13 @@ class AboutDialog(QDialog):
 
         self.setStyleSheet(dialog_style + btn_style)
 
+    @staticmethod
+    def _bin_icon(theme: str) -> QIcon:
+        themed = QIcon(resource_path(f"icons/{theme}/bin_full.svg"))
+        if not themed.isNull():
+            return themed
+        return QIcon(resource_path("icons/bin_full.ico"))
+
     def refresh_texts(self) -> None:
         self.setWindowTitle(self.i18n.tr("about_title"))
         self.version_label.setText(f"{self.i18n.tr('version')}: {__version__}")
@@ -223,4 +228,3 @@ class AboutDialog(QDialog):
         self.github_btn.setToolTip(self.i18n.tr("website"))
         self.github_hint.setText("GitHub")
         self.close_btn.setText(self.i18n.tr("close"))
-

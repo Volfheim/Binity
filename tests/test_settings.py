@@ -67,7 +67,7 @@ class SettingsTests(unittest.TestCase):
                     {
                         "clear_sound": "INVALID",
                         "secure_delete_mode": "ALL_IN",
-                        "secure_delete_info_ack": "sure",
+                        "secure_delete_info_ack": "yes",
                         "overflow_notify_threshold_gb": 99999,
                         "overflow_notify_enabled": "yes",
                         "theme_sync": "",
@@ -85,8 +85,37 @@ class SettingsTests(unittest.TestCase):
                 self.assertTrue(reloaded.overflow_notify_enabled)
                 self.assertFalse(reloaded.theme_sync)
                 self.assertFalse(reloaded.auto_check_updates)
-                self.assertEqual(reloaded.last_update_check, "")
-                self.assertEqual(reloaded.skipped_update_version, "321")
+            self.assertEqual(reloaded.last_update_check, "")
+            self.assertEqual(reloaded.skipped_update_version, "321")
+
+    def test_boolean_strings_are_normalized_and_persisted(self) -> None:
+        with TemporaryDirectory() as temp_dir, patch.dict(os.environ, {"APPDATA": temp_dir}, clear=False):
+            app_dir = Path(temp_dir) / "Binity"
+            app_dir.mkdir(parents=True, exist_ok=True)
+            config_file = app_dir / "settings.json"
+            config_file.write_text(
+                json.dumps(
+                    {
+                        "confirm_clear": "false",
+                        "overflow_notify_enabled": "off",
+                        "theme_sync": "0",
+                        "secure_delete_info_ack": "no",
+                        "auto_check_updates": "false",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            settings = Settings()
+            payload = json.loads(config_file.read_text(encoding="utf-8"))
+
+            self.assertFalse(settings.confirm_clear)
+            self.assertFalse(settings.overflow_notify_enabled)
+            self.assertFalse(settings.theme_sync)
+            self.assertFalse(settings.secure_delete_info_ack)
+            self.assertFalse(settings.auto_check_updates)
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertFalse(payload["confirm_clear"])
 
 
 if __name__ == "__main__":

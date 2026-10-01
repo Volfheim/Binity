@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
 from src.version import __version__
+from src.core.update_handoff import encoded_command, wait_for_helper
 
 GITHUB_API_LATEST = "https://api.github.com/repos/Volfheim/Binity/releases/latest"
 GITHUB_HEADERS = {
@@ -30,6 +33,7 @@ class UpdateInfo:
     body: str
     asset_name: str
     asset_size: int
+    expected_sha256: str = ""
 
 
 class Updater:
@@ -117,6 +121,15 @@ class Updater:
         return tuple(parts) or (0,)
 
     @staticmethod
+    def _normalize_sha256(value: object) -> str:
+        digest = str(value or "").strip().lower()
+        if digest.startswith("sha256:"):
+            digest = digest[7:]
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            return ""
+        return digest
+
+    @staticmethod
     def _powershell_exe() -> str:
         system_root = os.environ.get("SystemRoot", r"C:\Windows")
         candidate = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
@@ -125,13 +138,15 @@ class Updater:
         return "powershell"
 
     @staticmethod
-    def _sanitized_child_env() -> dict[str, str]:
+    def _sanitized_child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
         env = {str(key): str(value) for key, value in os.environ.items()}
         for key in list(env.keys()):
             upper = key.upper()
             if upper == "_MEIPASS2" or upper.startswith("_PYI_"):
                 env.pop(key, None)
         env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+        if extra:
+            env.update({str(key): str(value) for key, value in extra.items()})
         return env
 
     @staticmethod
@@ -231,6 +246,7 @@ class Updater:
             download_url = str(selected_asset.get("browser_download_url", "") or "")
             asset_name = str(selected_asset.get("name", "") or "")
             asset_size = int(selected_asset.get("size", 0) or 0)
+            expected_sha256 = self._normalize_sha256(selected_asset.get("digest"))
             if not download_url:
                 _no_update()
                 return None
@@ -241,6 +257,7 @@ class Updater:
                 body=str(release.get("body", "") or ""),
                 asset_name=asset_name,
                 asset_size=asset_size,
+                expected_sha256=expected_sha256,
             )
             self.settings.set("last_update_check", datetime.now().isoformat())
             return self._info
@@ -259,18 +276,9 @@ class Updater:
 
         if not self.is_frozen():
             return update_dir / desired_name
-
-        current_exe = Path(sys.executable).resolve()
-        app_dir = current_exe.parent
-        preferred = app_dir / desired_name
-
-        try:
-            if preferred.resolve().samefile(current_exe):
-                return update_dir / f"next-{desired_name}"
-        except Exception:
-            if str(preferred).lower() == str(current_exe).lower():
-                return update_dir / f"next-{desired_name}"
-        return preferred
+        # Always stage beside the updater. The GitHub asset name must never
+        # become a second installed executable in the application directory.
+        return update_dir / f"next-{desired_name}"
 
     def download_update(self, on_progress: Callable[[int], None] | None = None) -> Path | None:
         if self._downloading:
@@ -334,6 +342,15 @@ class Updater:
                 header = fh.read(2)
             if header != b"MZ":
                 raise RuntimeError("Downloaded file is not a valid EXE")
+
+            if self._info.expected_sha256:
+                digest = hashlib.sha256()
+                with open(target, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                actual_digest = digest.hexdigest()
+                if actual_digest != self._info.expected_sha256:
+                    raise RuntimeError("SHA-256 mismatch")
 
             try:
                 quoted_target = str(target).replace("'", "''")
@@ -400,7 +417,9 @@ class Updater:
         try:
             update_dir = self._update_dir()
             if update_dir.exists():
-                for pattern in ("next-*.exe", "ready-*.flag", "*.tmp", "*.old"):
+                # Keep staged EXEs after an interrupted replacement so a
+                # later repair can reuse the verified download.
+                for pattern in ("ready-*.flag", "*.tmp", "*.old"):
                     for path in update_dir.glob(pattern):
                         try:
                             path.unlink()
@@ -425,164 +444,48 @@ class Updater:
             update_dir.mkdir(parents=True, exist_ok=True)
             downloaded_exe = downloaded_exe.resolve()
 
-            if downloaded_exe.parent == update_dir and downloaded_exe.name.lower().startswith("next-"):
-                final_exe = current_exe
-            else:
-                final_exe = current_exe.parent / downloaded_exe.name
+            # The running executable is the installation identity. Asset
+            # names such as Binity-3.3.8.exe are only download names.
+            final_exe = Path(self.launch_final_path) if self.launched_from_fallback_path else current_exe
+            final_exe = final_exe.resolve()
+            if downloaded_exe == final_exe or downloaded_exe == current_exe:
+                raise RuntimeError("Update payload must be separate from the running executable")
 
-            script_path = update_dir / "_binity-update.cmd"
-            flag_file = update_dir / "applied.flag"
-            log_file = update_dir / "update.log"
-            ready_file = update_dir / f"ready-{int(current_pid)}.flag"
-            launch_info_file = update_dir / "launch-info.txt"
-
-            script_template = """@echo off
-setlocal enableextensions
-set "PID=@@PID@@"
-set "CURRENT=@@CURRENT_EXE@@"
-set "DOWNLOADED=@@DOWNLOADED_EXE@@"
-set "FINAL=@@FINAL_EXE@@"
-set "FLAG=@@FLAG_FILE@@"
-set "LOG=@@LOG_FILE@@"
-set "READY=@@READY_FILE@@"
-set "LAUNCH_INFO=@@LAUNCH_INFO_FILE@@"
-set "RUN_TARGET="
-
-set "PYINSTALLER_RESET_ENVIRONMENT=1"
-set "_MEIPASS2="
-set "_PYI_APPLICATION_HOME_DIR="
-set "_PYI_ARCHIVE_FILE="
-set "_PYI_PARENT_PROCESS_LEVEL="
-set "_PYI_SPLASH_IPC="
-
-call :log Updater started
-
-for /L %%A in (1,1,25) do (
-  tasklist /FI "PID eq %PID%" 2>NUL | find "%PID%" >NUL
-  if errorlevel 1 goto wait_done
-  timeout /t 1 /nobreak >NUL
-)
-taskkill /PID %PID% /F >NUL 2>&1
-timeout /t 1 /nobreak >NUL
-
-:wait_done
-if not exist "%DOWNLOADED%" (
-  call :log Downloaded file not found
-  goto cleanup
-)
-
-set "RUN_TARGET=%DOWNLOADED%"
-
-if /I not "%DOWNLOADED%"=="%FINAL%" (
-  call :copy_with_retry "%DOWNLOADED%" "%FINAL%"
-  if errorlevel 1 (
-    call :log Copy to final location failed, fallback to staged executable
-  ) else (
-    set "RUN_TARGET=%FINAL%"
-  )
-) else (
-  set "RUN_TARGET=%FINAL%"
-)
-
-if "%RUN_TARGET%"=="" (
-  call :log Empty run target
-  goto cleanup
-)
-
-if not exist "%RUN_TARGET%" (
-  call :log Run target does not exist: %RUN_TARGET%
-  goto cleanup
-)
-
-call :start_target "%RUN_TARGET%"
-if errorlevel 1 (
-  call :log First launch attempt failed
-  if /I not "%RUN_TARGET%"=="%DOWNLOADED%" if exist "%DOWNLOADED%" (
-    call :log Trying fallback launch from staged executable
-    set "RUN_TARGET=%DOWNLOADED%"
-    call :start_target "%DOWNLOADED%"
-  )
-)
-
-if exist "%READY%" (
-  >"%LAUNCH_INFO%" (
-    echo RUN_TARGET=%RUN_TARGET%
-    echo FINAL=%FINAL%
-  )
-  echo 1>"%FLAG%"
-) else (
-  call :log Ready flag was not received
-)
-
-if /I "%RUN_TARGET%"=="%FINAL%" if /I not "%DOWNLOADED%"=="%FINAL%" (
-  del /F /Q "%DOWNLOADED%" >NUL 2>&1
-)
-
-call :log Updater finished
-
-:cleanup
-(goto) 2>NUL & del "%~f0"
-endlocal
-exit /b 0
-
-:log
-set "MSG=%*"
->>"%LOG%" echo [%date% %time%] %MSG%
-exit /b 0
-
-:start_target
-set "TARGET=%~1"
-if "%TARGET%"=="" exit /b 1
-if not exist "%TARGET%" exit /b 1
-if exist "%READY%" del /F /Q "%READY%" >NUL 2>&1
-
-call :log Starting: %TARGET%
-start "" "%TARGET%" --show-after-update --update-ready-flag "%READY%"
-for /L %%R in (1,1,20) do (
-  if exist "%READY%" exit /b 0
-  timeout /t 1 /nobreak >NUL
-)
-exit /b 1
-
-:copy_with_retry
-set "SRC=%~1"
-set "DST=%~2"
-if "%SRC%"=="" exit /b 1
-if "%DST%"=="" exit /b 1
-for /L %%C in (1,1,8) do (
-  copy /Y /B "%SRC%" "%DST%" >NUL
-  if not errorlevel 1 exit /b 0
-  timeout /t 1 /nobreak >NUL
-)
-exit /b 1
-"""
-
-            script = (
-                script_template
-                .replace("@@PID@@", str(int(current_pid)))
-                .replace("@@CURRENT_EXE@@", str(current_exe))
-                .replace("@@DOWNLOADED_EXE@@", str(downloaded_exe))
-                .replace("@@FINAL_EXE@@", str(final_exe))
-                .replace("@@FLAG_FILE@@", str(flag_file))
-                .replace("@@LOG_FILE@@", str(log_file))
-                .replace("@@READY_FILE@@", str(ready_file))
-                .replace("@@LAUNCH_INFO_FILE@@", str(launch_info_file))
-            )
-            script_path.write_text(script, encoding="cp866", errors="ignore")
-
-            self._reset_windows_dll_directory()
-
+            token = uuid.uuid4().hex
+            handoff_dir = update_dir / f"handoff-{token}"
+            handoff_dir.mkdir()
+            ready_file = handoff_dir / "app-ready.flag"
+            helper_ready = handoff_dir / "helper-ready.flag"
+            digest = hashlib.sha256()
+            with downloaded_exe.open("rb") as payload:
+                for chunk in iter(lambda: payload.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            config = {
+                "ParentPid": current_pid,
+                "Downloaded": str(downloaded_exe),
+                "Final": str(final_exe),
+                "Candidate": str(final_exe.with_name(f".{final_exe.name}.{token}.new")),
+                "Backup": str(final_exe.with_name(f".{final_exe.name}.{token}.bak")),
+                "Ready": str(ready_file),
+                "HelperReady": str(helper_ready),
+                "Flag": str(update_dir / "applied.flag"),
+                "LaunchInfo": str(update_dir / "launch-info.txt"),
+                "Log": str(update_dir / "update.log"),
+                "Digest": digest.hexdigest(),
+            }
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0
-
-            subprocess.Popen(
-                ["cmd", "/c", str(script_path)],
-                env=self._sanitized_child_env(),
+            process = subprocess.Popen(
+                [self._powershell_exe(), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                 "-EncodedCommand", encoded_command()],
+                env=self._sanitized_child_env({"BINITY_UPDATE_CONFIG": json.dumps(config)}),
                 startupinfo=startupinfo,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
                 close_fds=True,
+                cwd=str(update_dir),
             )
+            wait_for_helper(process, helper_ready)
             return True
         except Exception as exc:
             self.last_error = str(exc)

@@ -31,6 +31,7 @@ class SHQUERYRBINFO(ctypes.Structure):
 class RecycleBinInfo:
     size_bytes: int
     items: int
+    available: bool = True
 
 
 @dataclass(slots=True)
@@ -63,10 +64,10 @@ class RecycleBinService:
             info.cbSize = ctypes.sizeof(info)
             result = ctypes.windll.shell32.SHQueryRecycleBinW(None, ctypes.byref(info))
             if result != 0:
-                return RecycleBinInfo(size_bytes=0, items=0)
-            return RecycleBinInfo(size_bytes=int(info.i64Size), items=int(info.i64NumItems))
+                return RecycleBinInfo(size_bytes=0, items=0, available=False)
+            return RecycleBinInfo(size_bytes=int(info.i64Size), items=int(info.i64NumItems), available=True)
         except Exception:
-            return RecycleBinInfo(size_bytes=0, items=0)
+            return RecycleBinInfo(size_bytes=0, items=0, available=False)
 
     @classmethod
     def get_size_bytes(cls) -> int:
@@ -132,6 +133,16 @@ class RecycleBinService:
         for index in range(26):
             yield chr(ord("A") + index)
 
+    @staticmethod
+    def _iter_nested_files(directory: Path):
+        try:
+            for path in directory.rglob("*"):
+                yield path
+        except OSError:
+            # A locked or disappearing recycle-bin directory must not cancel
+            # wiping of payloads from other drives or user SIDs.
+            return
+
     @classmethod
     def _iter_wipe_targets(cls):
         if os.name != "nt":
@@ -170,12 +181,7 @@ class RecycleBinService:
                     if not entry.is_dir():
                         continue
 
-                    try:
-                        nested_items = entry.rglob("*")
-                    except OSError:
-                        continue
-
-                    for nested in nested_items:
+                    for nested in cls._iter_nested_files(entry):
                         if nested.is_symlink() or not nested.is_file():
                             continue
                         if cls._is_safe_recycle_payload_path(nested):

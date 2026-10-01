@@ -2,6 +2,7 @@
 
 import json
 import os
+from threading import RLock
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 from src.core.resources import app_data_dir
 
 DEFAULT_SETTINGS: dict[str, Any] = {
+    "schema_version": 1,
     "language": "RU",
     "confirm_clear": True,
     "double_click_action": "open",
@@ -31,16 +33,19 @@ class Settings:
     def __init__(self) -> None:
         self.config_dir: Path = app_data_dir()
         self.config_file: Path = self.config_dir / "settings.json"
+        self._lock = RLock()
         self.values: dict[str, Any] = deepcopy(DEFAULT_SETTINGS)
         self._load()
 
     def _load(self) -> None:
+        loaded_from_disk = False
         if self.config_file.exists():
             try:
                 with open(self.config_file, "r", encoding="utf-8") as fh:
                     raw = json.load(fh)
                 if isinstance(raw, dict):
                     self.values.update(raw)
+                    loaded_from_disk = True
             except Exception:
                 try:
                     broken_file = self.config_file.with_suffix(".broken.json")
@@ -52,15 +57,43 @@ class Settings:
             self._import_legacy_registry_values()
             self._save()
 
+        before_normalization = deepcopy(self.values)
         self._normalize()
+        if loaded_from_disk and self.values != before_normalization:
+            self._save()
+
+    @staticmethod
+    def _as_bool(value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+
+        if value is None:
+            return default
+
+        normalized = str(value).strip().lower()
+        if not normalized:
+            return False
+        if normalized in {"1", "true", "yes", "on", "да", "вкл", "включено"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "нет", "выкл", "выключено"}:
+            return False
+        return default
 
     def _normalize(self) -> None:
+        try:
+            schema_version = int(self.values.get("schema_version", 1))
+        except (TypeError, ValueError):
+            schema_version = 1
+        self.values["schema_version"] = max(1, schema_version)
+
         language = str(self.values.get("language", "RU")).upper()
         if language not in ("RU", "EN"):
             language = "RU"
         self.values["language"] = language
 
-        self.values["confirm_clear"] = bool(self.values.get("confirm_clear", True))
+        self.values["confirm_clear"] = self._as_bool(self.values.get("confirm_clear", True), True)
 
         action = str(self.values.get("double_click_action", "open")).lower()
         if action not in ("open", "clear"):
@@ -78,7 +111,9 @@ class Settings:
             sound_mode = "off"
         self.values["clear_sound"] = sound_mode
 
-        self.values["overflow_notify_enabled"] = bool(self.values.get("overflow_notify_enabled", True))
+        self.values["overflow_notify_enabled"] = self._as_bool(
+            self.values.get("overflow_notify_enabled", True), True
+        )
 
         try:
             overflow_threshold = int(self.values.get("overflow_notify_threshold_gb", 15))
@@ -86,15 +121,19 @@ class Settings:
             overflow_threshold = 15
         self.values["overflow_notify_threshold_gb"] = max(1, min(overflow_threshold, 1024))
 
-        self.values["theme_sync"] = bool(self.values.get("theme_sync", True))
+        self.values["theme_sync"] = self._as_bool(self.values.get("theme_sync", True), True)
 
         secure_mode = str(self.values.get("secure_delete_mode", "off")).lower()
         if secure_mode not in ("off", "zero", "random"):
             secure_mode = "off"
         self.values["secure_delete_mode"] = secure_mode
-        self.values["secure_delete_info_ack"] = bool(self.values.get("secure_delete_info_ack", False))
+        self.values["secure_delete_info_ack"] = self._as_bool(
+            self.values.get("secure_delete_info_ack", False), False
+        )
 
-        self.values["auto_check_updates"] = bool(self.values.get("auto_check_updates", True))
+        self.values["auto_check_updates"] = self._as_bool(
+            self.values.get("auto_check_updates", True), True
+        )
 
         last_update_check = str(self.values.get("last_update_check", "") or "").strip()
         if last_update_check:
@@ -142,74 +181,80 @@ class Settings:
             return
 
     def _save(self) -> None:
-        self._normalize()
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        temp_file = self.config_file.with_suffix(".tmp")
-        with open(temp_file, "w", encoding="utf-8") as fh:
-            json.dump(self.values, fh, indent=2, ensure_ascii=False)
-        temp_file.replace(self.config_file)
+        with self._lock:
+            self._normalize()
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            temp_file = self.config_file.with_suffix(".tmp")
+            with open(temp_file, "w", encoding="utf-8") as fh:
+                json.dump(self.values, fh, indent=2, ensure_ascii=False)
+                fh.flush()
+                os.fsync(fh.fileno())
+            temp_file.replace(self.config_file)
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self.values.get(key, default)
+        with self._lock:
+            return self.values.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        self.values[key] = value
-        self._save()
+        with self._lock:
+            self.values[key] = value
+            self._save()
 
     def set_many(self, payload: dict[str, Any]) -> None:
         if not payload:
             return
-        self.values.update(payload)
-        self._save()
+        with self._lock:
+            self.values.update(payload)
+            self._save()
 
     @property
     def language(self) -> str:
-        return self.values["language"]
+        return self.get("language", "RU")
 
     @property
     def confirm_clear(self) -> bool:
-        return self.values["confirm_clear"]
+        return self.get("confirm_clear", True)
 
     @property
     def double_click_action(self) -> str:
-        return self.values["double_click_action"]
+        return self.get("double_click_action", "open")
 
     @property
     def update_interval_sec(self) -> int:
-        return self.values["update_interval_sec"]
+        return self.get("update_interval_sec", 10)
 
     @property
     def clear_sound(self) -> str:
-        return self.values["clear_sound"]
+        return self.get("clear_sound", "paper")
 
     @property
     def overflow_notify_enabled(self) -> bool:
-        return self.values["overflow_notify_enabled"]
+        return self.get("overflow_notify_enabled", True)
 
     @property
     def overflow_notify_threshold_gb(self) -> int:
-        return self.values["overflow_notify_threshold_gb"]
+        return self.get("overflow_notify_threshold_gb", 15)
 
     @property
     def theme_sync(self) -> bool:
-        return self.values["theme_sync"]
+        return self.get("theme_sync", True)
 
     @property
     def auto_check_updates(self) -> bool:
-        return self.values["auto_check_updates"]
+        return self.get("auto_check_updates", True)
 
     @property
     def secure_delete_mode(self) -> str:
-        return self.values["secure_delete_mode"]
+        return self.get("secure_delete_mode", "off")
 
     @property
     def secure_delete_info_ack(self) -> bool:
-        return self.values["secure_delete_info_ack"]
+        return self.get("secure_delete_info_ack", False)
 
     @property
     def last_update_check(self) -> str:
-        return self.values.get("last_update_check", "")
+        return self.get("last_update_check", "")
 
     @property
     def skipped_update_version(self) -> str:
-        return self.values.get("skipped_update_version", "")
+        return self.get("skipped_update_version", "")

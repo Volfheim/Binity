@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict
 
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QThreadPool, QTimer, Qt
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
 from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QProgressDialog, QSystemTrayIcon
 
 from src.core.formatting import format_size
+from src.core.background import BackgroundTask, BackgroundTaskRunner, TaskResult
 from src.core.i18n import I18n
 from src.core.resources import resource_path
 from src.core.settings import Settings
@@ -32,66 +33,12 @@ CLEAR_ACTION = "clear"
 UPDATE_TIMER_INTERVAL_MS = 30 * 60 * 1000
 
 ICON_MAP = {
-    0: "icons/bin_0.ico",
-    1: "icons/bin_25.ico",
-    2: "icons/bin_50.ico",
-    3: "icons/bin_75.ico",
-    4: "icons/bin_full.ico",
+    0: "icons/bin_0.svg",
+    1: "icons/bin_25.svg",
+    2: "icons/bin_50.svg",
+    3: "icons/bin_75.svg",
+    4: "icons/bin_full.svg",
 }
-
-
-class _ClearBinTaskSignals(QObject):
-    finished = pyqtSignal(object)
-
-
-class _ClearBinTask(QRunnable):
-    """Async task to empty the recycle bin."""
-
-    def __init__(self, recycle_bin: RecycleBinService, secure_mode: str) -> None:
-        super().__init__()
-        self.service = recycle_bin
-        self.secure_mode = secure_mode
-        self.signals = _ClearBinTaskSignals()
-
-    def run(self) -> None:
-        result = self.service.empty_bin(self.secure_mode)
-        self.signals.finished.emit(result)
-
-
-class _UpdateCheckTaskSignals(QObject):
-    finished = pyqtSignal(object, str, bool)
-
-
-class _UpdateCheckTask(QRunnable):
-    def __init__(self, updater: Updater, force: bool, manual: bool) -> None:
-        super().__init__()
-        self.updater = updater
-        self.force = bool(force)
-        self.manual = bool(manual)
-        self.signals = _UpdateCheckTaskSignals()
-
-    def run(self) -> None:
-        info = self.updater.check_for_update(force=self.force)
-        error = str(self.updater.last_error or "")
-        self.signals.finished.emit(info, error, self.manual)
-
-
-class _UpdateDownloadTaskSignals(QObject):
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(str, str)
-
-
-class _UpdateDownloadTask(QRunnable):
-    def __init__(self, updater: Updater) -> None:
-        super().__init__()
-        self.updater = updater
-        self.signals = _UpdateDownloadTaskSignals()
-
-    def run(self) -> None:
-        downloaded = self.updater.download_update(on_progress=self.signals.progress.emit)
-        downloaded_path = str(downloaded) if downloaded else ""
-        error = str(self.updater.last_error or "")
-        self.signals.finished.emit(downloaded_path, error)
 
 
 class TrayApp(QObject):
@@ -116,24 +63,29 @@ class TrayApp(QObject):
         self._about_dialog: AboutDialog | None = None
         self._confirm_dialog: ConfirmDialog | None = None
         self._clear_in_progress = False
-        self._clear_task: _ClearBinTask | None = None
+        self._clear_task: BackgroundTask | None = None
 
         self._update_check_in_progress = False
         self._update_download_in_progress = False
-        self._update_check_task: _UpdateCheckTask | None = None
-        self._update_download_task: _UpdateDownloadTask | None = None
+        self._update_check_task: BackgroundTask | None = None
+        self._update_download_task: BackgroundTask | None = None
         self._update_progress_dialog: QProgressDialog | None = None
         self._update_notified_version = ""
 
         self._overflow_notified = False
         self._thread_pool = QThreadPool.globalInstance()
+        self._task_runner = BackgroundTaskRunner(self._thread_pool)
+        self._shutting_down = False
+        self._tray_retry_timer = QTimer(self)
+        self._tray_retry_timer.setInterval(5000)
+        self._tray_retry_timer.timeout.connect(self._ensure_tray_visible)
 
         self._build_menu()
         self._apply_menu_state()
         self._update_texts()
 
         self._refresh_state()
-        self.tray.show()
+        self._ensure_tray_visible()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_state)
@@ -156,6 +108,16 @@ class TrayApp(QObject):
         if Path(themed_path).exists():
             return themed_path
         return resource_path(relative_path)
+
+    def _ensure_tray_visible(self) -> None:
+        if self._shutting_down:
+            return
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            self.tray.show()
+            self._tray_retry_timer.stop()
+        else:
+            # Explorer may still be starting when the app is launched at sign-in.
+            self._tray_retry_timer.start()
 
     def _load_icons(self, theme: str) -> Dict[int, QIcon]:
         icons: Dict[int, QIcon] = {}
@@ -607,9 +569,16 @@ class TrayApp(QObject):
             self._overflow_notified = False
 
     def _refresh_state(self) -> None:
+        if self._shutting_down:
+            return
+
         self._sync_system_theme()
 
         info = self.recycle_bin.get_info()
+        if not info.available:
+            self.tray.setToolTip(self.i18n.tr("tooltip_unavailable"))
+            return
+
         level = self.recycle_bin.level_from_metrics(info.size_bytes, info.items)
         if level != self.current_level:
             self.current_level = level
@@ -721,7 +690,11 @@ class TrayApp(QObject):
                 self._focus_dialog(self._confirm_dialog)
                 return
 
-            self._confirm_dialog = ConfirmDialog(self.i18n, message_override=self._build_confirm_message())
+            self._confirm_dialog = ConfirmDialog(
+                self.i18n,
+                message_override=self._build_confirm_message(),
+                theme=self.current_theme,
+            )
             try:
                 if self._confirm_dialog.exec() != QDialog.DialogCode.Accepted:
                     return
@@ -743,18 +716,23 @@ class TrayApp(QObject):
                 2400,
             )
 
-        task = _ClearBinTask(self.recycle_bin, secure_mode=secure_mode)
-        task.signals.finished.connect(self._on_clear_task_finished)
-        self._clear_task = task
-        self._thread_pool.start(task)
+        self._clear_task = self._task_runner.start(
+            lambda _progress: self.recycle_bin.empty_bin(secure_mode),
+            self._on_clear_task_finished,
+        )
 
-    def _on_clear_task_finished(self, result_obj: object) -> None:
+    def _on_clear_task_finished(self, task_result: TaskResult) -> None:
+        if self._shutting_down:
+            return
+
         self._clear_in_progress = False
         self.clear_action.setEnabled(True)
         self.double_click_clear_action.setEnabled(True)
         self._clear_task = None
 
-        result = result_obj if isinstance(result_obj, BinClearResult) else BinClearResult(False, SECURE_DELETE_OFF)
+        result = task_result.value if task_result.ok and isinstance(task_result.value, BinClearResult) else None
+        if result is None:
+            result = BinClearResult(False, SECURE_DELETE_OFF)
         if not result.success:
             self._show_error(self.i18n.tr("error_empty_failed"))
             return
@@ -793,18 +771,30 @@ class TrayApp(QObject):
                 2000,
             )
 
-        task = _UpdateCheckTask(self.updater, force=force, manual=manual)
-        task.signals.finished.connect(self._on_update_check_finished)
-        self._update_check_task = task
-        self._thread_pool.start(task)
+        def check_release(_progress: Callable[[int], None]) -> tuple[UpdateInfo | None, str]:
+            info = self.updater.check_for_update(force=force)
+            return info, str(self.updater.last_error or "")
 
-    def _on_update_check_finished(self, info_obj: object, error: str, manual: bool) -> None:
+        self._update_check_task = self._task_runner.start(
+            check_release,
+            lambda task_result: self._on_update_check_finished(task_result, manual),
+        )
+
+    def _on_update_check_finished(self, task_result: TaskResult, manual: bool) -> None:
+        if self._shutting_down:
+            return
+
         self._update_check_in_progress = False
         self._update_check_task = None
         if not self._update_download_in_progress:
             self.check_updates_action.setEnabled(True)
 
-        info = info_obj if isinstance(info_obj, UpdateInfo) else None
+        info: UpdateInfo | None = None
+        error = task_result.error
+        if task_result.ok and isinstance(task_result.value, tuple):
+            info_obj, worker_error = task_result.value
+            info = info_obj if isinstance(info_obj, UpdateInfo) else None
+            error = str(worker_error or "")
         self._refresh_update_action_text()
 
         if info:
@@ -893,23 +883,39 @@ class TrayApp(QObject):
             2000,
         )
 
-        task = _UpdateDownloadTask(self.updater)
-        task.signals.progress.connect(self._on_update_download_progress)
-        task.signals.finished.connect(self._on_update_download_finished)
-        self._update_download_task = task
-        self._thread_pool.start(task)
+        def download_release(progress: Callable[[int], None]) -> tuple[str, str]:
+            downloaded = self.updater.download_update(on_progress=progress)
+            return str(downloaded) if downloaded else "", str(self.updater.last_error or "")
+
+        self._update_download_task = self._task_runner.start(
+            download_release,
+            self._on_update_download_finished,
+            progress=self._on_update_download_progress,
+        )
 
     def _on_update_download_progress(self, percent: int) -> None:
+        if self._shutting_down:
+            return
+
         self.update_now_action.setText(self.i18n.tr("update_downloading_progress").format(percent=percent))
         if self._update_progress_dialog is not None:
             self._update_progress_dialog.setLabelText(self.i18n.tr("update_downloading_progress").format(percent=percent))
             self._update_progress_dialog.setValue(max(0, min(100, int(percent))))
 
-    def _on_update_download_finished(self, downloaded_path: str, error: str) -> None:
+    def _on_update_download_finished(self, task_result: TaskResult) -> None:
+        if self._shutting_down:
+            return
+
         self._update_download_in_progress = False
         self._update_download_task = None
         self.check_updates_action.setEnabled(True)
         self._close_update_progress_dialog()
+
+        downloaded_path = ""
+        error = task_result.error
+        if task_result.ok and isinstance(task_result.value, tuple):
+            downloaded_path, worker_error = task_result.value
+            error = str(worker_error or "")
 
         if not downloaded_path:
             message = self.i18n.tr("error_update_download")
@@ -947,8 +953,13 @@ class TrayApp(QObject):
         self._about_dialog.activateWindow()
 
     def quit_app(self) -> None:
+        if self._shutting_down:
+            return
+
+        self._shutting_down = True
         self.timer.stop()
         self.update_timer.stop()
+        self._tray_retry_timer.stop()
         self._close_update_progress_dialog()
         self.tray.hide()
         from PyQt6.QtWidgets import QApplication

@@ -1,5 +1,6 @@
 """Updater regression tests: local fixtures only, no network or EXE execution."""
 import io
+import json
 import os
 import subprocess
 import unittest
@@ -48,6 +49,17 @@ class UpdaterRuntimeTests(unittest.TestCase):
                                          "Latest release", "Binity-3.3.8.exe", 12_000_000))
         self.assertTrue(self.settings.last_update_check)
 
+    def test_release_digest_is_normalized_when_present(self) -> None:
+        release = self.release | {
+            "assets": [self.release["assets"][0] | {"digest": "sha256:" + ("a" * 64)}]
+        }
+        with patch("src.core.updater.__version__", "3.3.7"), patch.object(
+            self.updater, "_fetch_latest_release", return_value=release
+        ):
+            info = self.updater.check_for_update(force=True)
+        self.assertIsNotNone(info)
+        self.assertEqual(info.expected_sha256, "a" * 64)
+
     def test_skipped_version_blocks_background_check_but_not_manual_check(self) -> None:
         self.settings.set("skipped_update_version", "v3.3.8")
         with patch("src.core.updater.__version__", "3.3.7"), patch.object(
@@ -82,6 +94,29 @@ class UpdaterRuntimeTests(unittest.TestCase):
         launch.assert_not_called()
         self.assertIn("packaged EXE", self.updater.last_error)
 
+    def test_frozen_download_always_uses_a_staging_name(self) -> None:
+        self.updater._info = UpdateInfo(
+            "v3.3.8",
+            "https://example.test/Binity-3.3.8.exe",
+            "",
+            "Binity-3.3.8.exe",
+            12_000_000,
+        )
+        with patch.object(Updater, "is_frozen", return_value=True), patch(
+            "src.core.updater.sys.executable", str(self.root / "Binity.exe")
+        ):
+            target = self.updater._download_target_path()
+        self.assertEqual(target.parent, self.root / "Binity" / "updates")
+        self.assertEqual(target.name, "next-Binity-3.3.8.exe")
+
+    def test_runtime_cleanup_keeps_staged_executable_for_retry(self) -> None:
+        update_dir = self.root / "Binity" / "updates"
+        update_dir.mkdir(parents=True)
+        staged = update_dir / "next-Binity.exe"
+        staged.write_bytes(b"MZ" + b"fixture")
+        Updater(self.settings)
+        self.assertTrue(staged.exists())
+
     @unittest.skipUnless(hasattr(subprocess, "STARTUPINFO"), "Windows-only process launch contract")
     def test_packaged_update_schedules_hidden_process_with_clean_environment(self) -> None:
         current = self.root / "Binity.exe"
@@ -92,13 +127,20 @@ class UpdaterRuntimeTests(unittest.TestCase):
             "src.core.updater.sys.executable", str(current)
         ), patch.object(Updater, "_reset_windows_dll_directory"), patch(
             "src.core.updater.subprocess.Popen"
-        ) as launch, patch.dict(os.environ, {"_PYI_ARCHIVE_FILE": "old.exe", "_MEIPASS2": "old"}):
+        ) as launch, patch("src.core.updater.wait_for_helper") as wait_for_helper, patch.dict(
+            os.environ, {"_PYI_ARCHIVE_FILE": "old.exe", "_MEIPASS2": "old"}
+        ):
             self.assertTrue(self.updater.apply_update(staged))
         args, kwargs = launch.call_args
-        script = self.root / "Binity" / "updates" / "_binity-update.cmd"
-        self.assertEqual(args[0], ["cmd", "/c", str(script)])
-        self.assertTrue(script.is_file())
+        self.assertEqual(args[0][0], self.updater._powershell_exe())
+        self.assertEqual(args[0][-2], "-EncodedCommand")
+        self.assertTrue(args[0][-1])
         self.assertEqual(kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        config = json.loads(kwargs["env"]["BINITY_UPDATE_CONFIG"])
+        self.assertEqual(config["Final"], str(current))
+        self.assertEqual(config["Downloaded"], str(staged))
+        self.assertTrue(config["Flag"].endswith("applied.flag"))
+        wait_for_helper.assert_called_once()
         self.assertNotIn("_PYI_ARCHIVE_FILE", kwargs["env"])
         self.assertNotIn("_MEIPASS2", kwargs["env"])
         self.assertEqual(kwargs["startupinfo"].wShowWindow, 0)
@@ -121,8 +163,21 @@ class UpdaterRuntimeTests(unittest.TestCase):
     def test_download_rejects_non_exe_and_removes_file(self) -> None:
         self._assert_invalid_download(b"NO" + b"x" * 1_000_000, 1_000_002, "not a valid EXE")
 
-    def _assert_invalid_download(self, payload: bytes, expected_size: int, message: str) -> None:
-        self.updater._info = UpdateInfo("v3.3.8", "https://example.test/Binity.exe", "", "Binity.exe", expected_size)
+    def _assert_invalid_download(
+        self,
+        payload: bytes,
+        expected_size: int,
+        message: str,
+        expected_sha256: str = "",
+    ) -> None:
+        self.updater._info = UpdateInfo(
+            "v3.3.8",
+            "https://example.test/Binity.exe",
+            "",
+            "Binity.exe",
+            expected_size,
+            expected_sha256,
+        )
         response = io.BytesIO(payload)
         response.headers = {"Content-Length": str(len(payload))}
         with patch("src.core.updater.urllib.request.urlopen", return_value=response):
@@ -130,6 +185,10 @@ class UpdaterRuntimeTests(unittest.TestCase):
         self.assertIn(message, self.updater.last_error)
         self.assertFalse(list((self.root / "Binity" / "updates").glob("*.exe")))
         self.assertFalse(self.updater._downloading)
+
+    def test_download_rejects_sha256_mismatch_and_removes_file(self) -> None:
+        payload = b"MZ" + b"x" * 1_000_000
+        self._assert_invalid_download(payload, len(payload), "SHA-256 mismatch", "0" * 64)
 
 
 if __name__ == "__main__":
