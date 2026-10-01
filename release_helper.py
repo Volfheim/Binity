@@ -13,6 +13,47 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.11",
+        "prev": "v3.3.10",
+        "name": "Binity v3.3.11",
+        "body": """## English
+This hotfix restores the original v3.3.7 icon artwork. Experimental icons were unintentionally included with the architecture changes in v3.3.8 through v3.3.10.
+
+### Fixes
+- Restored all five original ICO files byte-for-byte, including their transparency and fill-level colors.
+- The tray, About window, and EXE icon use the original artwork in both Windows themes.
+- Experimental light/dark SVG bin icons are excluded from the packaged application.
+- All updater and Windows packaging fixes from v3.3.10 are retained.
+
+### Verification
+- Added regression checks for the original icon hashes and rendering at small tray sizes in both themes.
+- Checked the icons inside the packaged EXE, including its native Windows icon resources.
+- Verified EXE startup and the packaged update path on Windows 11. Test code is not included in the EXE.
+
+### Compatibility
+- Windows 10 version 1809+ and Windows 11 x64 remain the target platforms. Windows 10 has not been runtime-tested for this release.
+- Updates are delivered through the existing in-app updater. No separate launcher or .NET installation is required.
+
+## Русский
+Этот корректирующий выпуск возвращает оригинальные иконки из v3.3.7. Экспериментальные иконки непреднамеренно попали в версии v3.3.8–v3.3.10 вместе с архитектурными изменениями.
+
+### Исправления
+- Все пять оригинальных ICO восстановлены побайтово, включая прозрачность и цвета уровней заполнения.
+- Трей, окно «О программе» и значок EXE используют оригинальное оформление в обеих темах Windows.
+- Экспериментальные светлые и тёмные SVG-иконки корзины исключены из сборки приложения.
+- Все исправления обновления и сборки для Windows из v3.3.10 сохранены.
+
+### Проверка
+- Добавлены регрессионные проверки хешей оригинальных иконок и отрисовки в малых размерах трея в обеих темах.
+- Проверены иконки внутри собранного EXE, включая его нативные ресурсы значка Windows.
+- Проверены запуск EXE и путь обновления упакованной программы на Windows 11. Код тестов не входит в EXE.
+
+### Совместимость
+- Целевыми платформами остаются Windows 10 версии 1809+ и Windows 11 x64. Проверка запуска этого релиза на Windows 10 не проводилась.
+- Обновление устанавливается через существующий механизм внутри программы. Отдельный launcher и установка .NET не требуются.
+"""
+    },
+    {
         "tag": "v3.3.10",
         "prev": "v3.3.9",
         "name": "Binity v3.3.10",

@@ -16,6 +16,9 @@ class PackagingTests(unittest.TestCase):
 
         def analyze(*args, **kwargs):
             observed.extend(os.environ["PATH"].split(os.pathsep))
+            self.assertEqual([Path(src).name for src, target in kwargs["datas"] if target == "icons"],
+                             ["bin_0.ico", "bin_25.ico", "bin_50.ico", "bin_75.ico", "bin_full.ico",
+                              "github.svg", "github_dark.svg"])
             return SimpleNamespace(pure=[], scripts=[], binaries=[], datas=[])
 
         namespace = {"SPECPATH": str(root), "Analysis": analyze,

@@ -21,7 +21,11 @@ a = Analysis(
     [str(root / "main.py")],
     pathex=[str(root)],
     binaries=[],
-    datas=[(str(root / "icons"), "icons"), (str(root / "sounds"), "sounds")],
+    # Design experiments under icons/light and icons/dark are not release assets.
+    datas=[(str(root / "icons" / name), "icons") for name in (
+        "bin_0.ico", "bin_25.ico", "bin_50.ico", "bin_75.ico", "bin_full.ico",
+        "github.svg", "github_dark.svg",
+    )] + [(str(root / "sounds"), "sounds")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

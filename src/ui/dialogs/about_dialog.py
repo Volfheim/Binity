@@ -215,10 +215,8 @@ class AboutDialog(QDialog):
         self.setStyleSheet(dialog_style + btn_style)
 
     @staticmethod
-    def _bin_icon(theme: str) -> QIcon:
-        themed = QIcon(resource_path(f"icons/{theme}/bin_full.svg"))
-        if not themed.isNull():
-            return themed
+    def _bin_icon(_theme: str) -> QIcon:
+        # Keep the original artwork in both themes, including the window icon.
         return QIcon(resource_path("icons/bin_full.ico"))
 
     def refresh_texts(self) -> None:

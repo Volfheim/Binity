@@ -33,11 +33,11 @@ CLEAR_ACTION = "clear"
 UPDATE_TIMER_INTERVAL_MS = 30 * 60 * 1000
 
 ICON_MAP = {
-    0: "icons/bin_0.svg",
-    1: "icons/bin_25.svg",
-    2: "icons/bin_50.svg",
-    3: "icons/bin_75.svg",
-    4: "icons/bin_full.svg",
+    0: "icons/bin_0.ico",
+    1: "icons/bin_25.ico",
+    2: "icons/bin_50.ico",
+    3: "icons/bin_75.ico",
+    4: "icons/bin_full.ico",
 }
 
 

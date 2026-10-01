@@ -7,12 +7,14 @@ This tests the legacy update engine, not clicks in the legacy application's UI.
 """
 
 import argparse
+from collections import Counter
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import threading
@@ -65,6 +67,36 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def verify_packaged_icons(candidate, archive):
+    import pefile
+    from test_icon_assets import ORIGINAL_ICONS
+
+    icon_entries = {name.replace("\\", "/"): name for name in archive.toc
+                    if name.replace("\\", "/").startswith("icons/")}
+    assert set(icon_entries) == {"icons/" + name for name in
+                                (*ORIGINAL_ICONS, "github.svg", "github_dark.svg")}
+    for name, expected in ORIGINAL_ICONS.items():
+        payload = archive.extract(icon_entries["icons/" + name])
+        assert hashlib.sha256(payload).hexdigest() == expected, name
+
+    original = archive.extract(icon_entries["icons/bin_full.ico"])
+    reserved, kind, count = struct.unpack_from("<HHH", original)
+    assert (reserved, kind) == (0, 1)
+    expected_frames = []
+    for index in range(count):
+        size, offset = struct.unpack_from("<II", original, 6 + 16 * index + 8)
+        expected_frames.append(original[offset:offset + size])
+    actual_frames = []
+    with pefile.PE(str(candidate)) as pe:
+        for resource in pe.DIRECTORY_ENTRY_RESOURCE.entries:
+            if resource.id == pefile.RESOURCE_TYPE["RT_ICON"]:
+                for entry in resource.directory.entries:
+                    for language in entry.directory.entries:
+                        data = language.data.struct
+                        actual_frames.append(pe.get_data(data.OffsetToData, data.Size))
+    assert Counter(actual_frames) == Counter(expected_frames), "Native EXE icon differs from v3.3.7"
+
+
 def wait_until(check, timeout=90):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -110,6 +142,8 @@ def main():
     from PyInstaller.archive.readers import CArchiveReader
 
     archive = CArchiveReader(str(candidate))
+    verify_packaged_icons(candidate, archive)
+    print("Original ICO assets and native EXE icon resources: PASS", flush=True)
     # Qt uses Windows ICU. A foreign copy from PATH can break DLL loading.
     assert not any(Path(name).name.lower().startswith("icu") and name.endswith(".dll")
                    for name in archive.toc), "Unexpected bundled ICU library"
