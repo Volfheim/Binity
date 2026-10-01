@@ -125,7 +125,9 @@ class UpdaterRuntimeTests(unittest.TestCase):
         staged.write_bytes(b"fixture next")
         with patch.object(Updater, "is_frozen", return_value=True), patch(
             "src.core.updater.sys.executable", str(current)
-        ), patch.object(Updater, "_reset_windows_dll_directory"), patch(
+        ), patch("src.core.updater.os.getppid", return_value=22260), patch.object(
+            Updater, "_reset_windows_dll_directory"
+        ) as reset_dll, patch(
             "src.core.updater.subprocess.Popen"
         ) as launch, patch("src.core.updater.wait_for_helper") as wait_for_helper, patch.dict(
             os.environ, {"_PYI_ARCHIVE_FILE": "old.exe", "_MEIPASS2": "old"}
@@ -139,8 +141,10 @@ class UpdaterRuntimeTests(unittest.TestCase):
         config = json.loads(kwargs["env"]["BINITY_UPDATE_CONFIG"])
         self.assertEqual(config["Final"], str(current))
         self.assertEqual(config["Downloaded"], str(staged))
+        self.assertEqual(config["BootloaderPid"], 22260)
         self.assertTrue(config["Flag"].endswith("applied.flag"))
         wait_for_helper.assert_called_once()
+        reset_dll.assert_called_once()
         self.assertNotIn("_PYI_ARCHIVE_FILE", kwargs["env"])
         self.assertNotIn("_MEIPASS2", kwargs["env"])
         self.assertEqual(kwargs["startupinfo"].wShowWindow, 0)

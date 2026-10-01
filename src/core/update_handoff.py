@@ -26,6 +26,12 @@ function Start-UpdateTarget($c, [string]$target) {
     $start.WorkingDirectory = [IO.Path]::GetDirectoryName($target)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
+    # A one-file PyInstaller child must unpack independently from the updater.
+    $start.EnvironmentVariables['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    foreach ($name in @('_MEIPASS2', '_PYI_APPLICATION_HOME_DIR', '_PYI_ARCHIVE_FILE',
+                        '_PYI_PARENT_PROCESS_LEVEL', '_PYI_SPLASH_IPC')) {
+        $start.EnvironmentVariables.Remove($name)
+    }
     $process = [Diagnostics.Process]::Start($start)
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds(60)
@@ -60,6 +66,18 @@ function Install-UpdatePayload($c) {
     return $false
 }
 
+function Wait-ForBinityExit($c, [int]$pid, [string]$label) {
+    if ($pid -le 0) { return }
+    $process = $null
+    try { $process = [Diagnostics.Process]::GetProcessById($pid) }
+    catch [ArgumentException] { return }
+    try {
+        if (-not $process.WaitForExit(30000)) {
+            throw "$label is still running; update aborted without killing it"
+        }
+    } finally { $process.Dispose() }
+}
+
 function Invoke-BinityUpdate($c) {
     if (-not [IO.File]::Exists($c.Downloaded)) { throw 'Downloaded file missing' }
     if ((Get-FileHash -LiteralPath $c.Downloaded -Algorithm SHA256).Hash -ne $c.Digest) {
@@ -67,14 +85,10 @@ function Invoke-BinityUpdate($c) {
     }
     Write-UpdateLog $c 'Helper ready; waiting for the application to exit'
     [IO.File]::WriteAllText($c.HelperReady, 'ready', $utf8)
-    $parent = $null
-    try { $parent = [Diagnostics.Process]::GetProcessById([int]$c.ParentPid) }
-    catch [ArgumentException] {}
-    if ($null -ne $parent) {
-        try {
-            if (-not $parent.WaitForExit(30000)) { throw 'Application still running; update aborted without killing it' }
-        } finally { $parent.Dispose() }
-    }
+    Wait-ForBinityExit $c ([int]$c.ParentPid) 'Application process'
+    # PyInstaller one-file mode has an outer bootloader process that owns the
+    # extraction directory and executable handle after the Python child exits.
+    Wait-ForBinityExit $c ([int]$c.BootloaderPid) 'PyInstaller bootloader'
 
     $target = $c.Downloaded
     if (Install-UpdatePayload $c) { $target = $c.Final }

@@ -440,6 +440,7 @@ class Updater:
 
             current_exe = Path(sys.executable).resolve()
             current_pid = os.getpid()
+            bootloader_pid = os.getppid() if os.name == "nt" else 0
             update_dir = self._update_dir()
             update_dir.mkdir(parents=True, exist_ok=True)
             downloaded_exe = downloaded_exe.resolve()
@@ -462,6 +463,7 @@ class Updater:
                     digest.update(chunk)
             config = {
                 "ParentPid": current_pid,
+                "BootloaderPid": bootloader_pid if bootloader_pid != current_pid else 0,
                 "Downloaded": str(downloaded_exe),
                 "Final": str(final_exe),
                 "Candidate": str(final_exe.with_name(f".{final_exe.name}.{token}.new")),
@@ -473,6 +475,9 @@ class Updater:
                 "Log": str(update_dir / "update.log"),
                 "Digest": digest.hexdigest(),
             }
+            # PyInstaller sets the DLL directory to the extracted _MEI folder.
+            # Clear it before the helper outlives this one-file process.
+            self._reset_windows_dll_directory()
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0
