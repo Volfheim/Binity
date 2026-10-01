@@ -1,7 +1,7 @@
 import os
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -205,6 +205,33 @@ class ThemeScreenTests(unittest.TestCase):
                     with self.subTest(theme=theme, label=label.objectName(), background=background):
                         self.assertGreaterEqual(contrast(label.palette().color(label.foregroundRole()),
                                                          background), 4.5)
+
+    def test_about_description_updates_with_language_in_open_and_reopened_window(self):
+        expected = {"RU": "Управление корзиной Windows из трея",
+                    "EN": "Binity - Modern recycle bin tray manager"}
+        controller = ScreenHarness("RU")
+        self.widgets.append(controller.menu)
+        controller._refresh_state = Mock()
+        dialog = self.show(AboutDialog(controller.i18n))
+        controller._about_dialog = dialog
+        for theme in ("dark", "light"):
+            dialog.set_theme(theme)
+            for language in ("RU", "EN", "RU"):
+                with self.subTest(theme=theme, language=language):
+                    controller._set_language(language)
+                    self.app.processEvents()
+                    self.assertTrue(dialog.isVisible())
+                    self.assertEqual(dialog.subtitle_label.text(), expected[language])
+                    self.assertGreaterEqual(dialog.subtitle_label.height(),
+                                            dialog.subtitle_label.heightForWidth(dialog.subtitle_label.width()))
+        dialog.hide()
+        controller._set_language("EN")
+        with patch.object(dialog, "activateWindow"):
+            controller.show_about()
+            self.app.processEvents()
+        self.assertIs(controller._about_dialog, dialog)
+        self.assertTrue(dialog.isVisible())
+        self.assertEqual(dialog.subtitle_label.text(), expected["EN"])
 
     def test_theme_change_updates_open_confirmation_and_hidden_about(self):
         controller = ScreenHarness()

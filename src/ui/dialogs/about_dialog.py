@@ -8,7 +8,7 @@ from src.core.i18n import I18n
 from src.core.resources import resource_path
 from src.ui.dialogs.rounded_dialog import AppIconBadge, RoundedDialog
 from src.ui.theme import THEME_DARK, THEME_LIGHT
-from src.version import __app_name__, __author__, __description__, __version__
+from src.version import __app_name__, __author__, __version__
 
 REPO_URL = "https://github.com/Volfheim/Binity"
 
@@ -26,7 +26,7 @@ class AboutDialog(RoundedDialog):
         self.root.addWidget(self.logo_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         self.title_label = QLabel(__app_name__)
         self.title_label.setObjectName("aboutTitle")
-        self.subtitle_label = QLabel(__description__)
+        self.subtitle_label = QLabel()
         self.subtitle_label.setProperty("role", "muted")
         self.subtitle_label.setWordWrap(True)
         self.version_label = QLabel()
@@ -66,6 +66,7 @@ class AboutDialog(RoundedDialog):
     def refresh_texts(self) -> None:
         self.refresh_chrome_texts()
         self.setWindowTitle(self.i18n.tr("about_title"))
+        self.subtitle_label.setText(self.i18n.tr("about_description"))
         self.version_label.setText(f"{self.i18n.tr('version')}: {__version__}")
         self.author_label.setText(f"{self.i18n.tr('author')}: {__author__}")
         self.github_btn.setToolTip(self.i18n.tr("website"))

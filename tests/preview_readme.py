@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QIcon, QImage, QPainter
+from PyQt6.QtGui import QColor, QFont, QIcon, QImage, QLinearGradient, QPainter, QPen
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QMenu
 
@@ -28,14 +28,14 @@ COPY = {
     "EN": (
         "BINITY  /  WINDOWS TRAY UTILITY",
         "Your Recycle Bin, within reach.",
-        "Tray menu · Settings · Confirmation · About",
+        "Tray menu · Settings · Double click · Confirmation · About",
         f"Actual v{__version__} widgets · Isolated example state",
         "main-window.png",
     ),
     "RU": (
         "BINITY  /  УТИЛИТА ДЛЯ ТРЕЯ WINDOWS",
         "Корзина — всегда под рукой.",
-        "Меню трея · Настройки · Подтверждение · О программе",
+        "Меню трея · Настройки · Двойной клик · Подтверждение · О программе",
         f"Реальные виджеты v{__version__} · Изолированный пример",
         "main-window-ru.png",
     ),
@@ -59,14 +59,16 @@ def main():
         controller._refresh_update_action_text()
         about = AboutDialog(controller.i18n, "dark")
         confirmation = ConfirmDialog(controller.i18n, theme="dark")
-        widgets = (controller.menu, controller.settings_menu, confirmation, about)
+        widgets = (controller.menu, controller.settings_menu, controller.double_click_menu,
+                   confirmation, about)
         images = []
         for widget in widgets:
             widget.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
             widget.show()
             app.processEvents()
-            # Native menu text can finish painting after the first event cycle.
+            # Warm up native menu text before taking the final rendered frame.
             if isinstance(widget, QMenu):
+                widget.grab()
                 QTest.qWait(250)
             pixmap = widget.grab()
             assert not pixmap.isNull()
@@ -76,12 +78,15 @@ def main():
         assert __version__ in about.version_label.text()
 
         sheet = QImage(2400, 1400, QImage.Format.Format_RGB32)
-        sheet.fill(QColor("#0e1522"))
         painter = QPainter(sheet)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.scale(2, 2)
+        background = QLinearGradient(0, 0, 1200, 700)
+        background.setColorAt(0, QColor("#28374b"))
+        background.setColorAt(1, QColor("#1d293a"))
+        painter.fillRect(QRectF(0, 0, 1200, 700), background)
 
         def text(value, x, y, width, height, size, color, bold=False):
             font = QFont("Segoe UI")
@@ -98,9 +103,35 @@ def main():
         text(subtitle, 40, 112, 1120, 26, 14, "#a1b2cb")
         text(footer, 40, 651, 690, 27, 12, "#97a8c0")
 
-        positions = ((40, 177), (300, 177), (32, 446), (792, 132))
+        menu_position = QPointF(40, 177)
+        settings_row = controller.menu.actionGeometry(controller.settings_menu.menuAction())
+        double_click_row = controller.settings_menu.actionGeometry(controller.double_click_menu.menuAction())
+        settings_position = QPointF(300, menu_position.y() + settings_row.top())
+        double_click_position = QPointF(586, settings_position.y() + double_click_row.top())
+        positions = (menu_position, settings_position, double_click_position,
+                     QPointF(32, 446), QPointF(792, 132))
+
+        def arrow(menu, row, source, target):
+            start = QPointF(source.x() + menu.width() + 9, source.y() + row.center().y())
+            end = QPointF(target.x() - 10, start.y())
+            assert end.x() > start.x() + 20
+            pen = QPen(QColor("#94bdf5"), 1.8)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(start, end)
+            painter.drawLine(end - QPointF(6, 4), end)
+            painter.drawLine(end - QPointF(6, -4), end)
+
+        arrow(controller.menu, settings_row, menu_position, settings_position)
+        arrow(controller.settings_menu, double_click_row, settings_position, double_click_position)
+        menu_labels = (("01  TRAY MENU", "02  SETTINGS", "03  DOUBLE CLICK") if language == "EN" else
+                       ("01  МЕНЮ ТРЕЯ", "02  НАСТРОЙКИ", "03  ДВОЙНОЙ КЛИК"))
+        for label, position in zip(menu_labels, positions):
+            text(label, position.x(), position.y() - 27, 206, 20, 11, "#bdcde2", True)
+
         placed = []
-        for widget, pixmap, (x, y) in zip(widgets, images, positions):
+        for widget, pixmap, position in zip(widgets, images, positions):
+            x, y = position.x(), position.y()
             rect = QRectF(x, y, widget.width(), widget.height())
             assert QRectF(0, 0, 1200, 700).contains(rect), (language, rect)
             assert all(not rect.intersects(other) for other in placed), (language, rect)
