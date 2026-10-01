@@ -29,10 +29,13 @@ This maintenance release repairs the Windows update helper while keeping Binity 
 
 ### Verification
 - Added execution-level Windows PowerShell regression tests for Unicode paths, process waiting, integrity checks, installation failures, and rollback.
+- Verified EXE startup on Windows 11 and installation of this EXE by the unchanged v3.3.7 updater in an isolated packaged test (not UI automation of the old release).
+- Verified the current updater with and without its temporary Python archive; reproduced the old updater's missing-archive failure separately.
 - Test code is not included in the application EXE.
 
 ### Compatibility
 - Windows 10 version 1809+ and Windows 11 x64 remain the target platforms. No separate launcher or .NET installation is required.
+- Windows 10 has not been runtime-tested for this release.
 - If an older running copy reports a missing `_MEI/base_library.zip`, exit and reopen that same copy before retrying the update. The downloaded version cannot repair an old process that fails before launching it.
 
 ## Русский
@@ -48,10 +51,13 @@ This maintenance release repairs the Windows update helper while keeping Binity 
 
 ### Проверка
 - Добавлены регрессионные тесты с исполнением Windows PowerShell для Unicode-путей, ожидания процессов, проверки целостности, ошибок установки и отката.
+- Проверены запуск EXE на Windows 11 и установка этого EXE неизменённым updater из v3.3.7 в изолированном упакованном тесте (не автоматизация интерфейса старого релиза).
+- Проверен текущий updater с временным Python-архивом и без него; отдельно воспроизведён сбой старого updater при отсутствии архива.
 - Код тестов не входит в EXE приложения.
 
 ### Совместимость
 - Целевыми платформами остаются Windows 10 версии 1809+ и Windows 11 x64. Отдельный launcher и установка .NET не требуются.
+- Проверка запуска этого релиза на Windows 10 не проводилась.
 - Если старая запущенная копия сообщает об отсутствии `_MEI/base_library.zip`, выйдите из неё и запустите ту же копию перед повторной попыткой обновления. Скачанная версия не может исправить старый процесс, который падает до её запуска.
 """
     },
