@@ -53,6 +53,7 @@ Normal emptying uses the Windows Recycle Bin operation. Confirmation is enabled 
 - Update staging and diagnostics: `%LOCALAPPDATA%\Binity\updates\`.
 - Packaged builds check GitHub Releases at launch and periodically; downloads and installation require an update prompt to be accepted. A manual check is available in the tray menu. The startup check runs even if background auto-checks are disabled in the current version.
 - Download checks validate size, the EXE header, and the GitHub-provided SHA-256 digest when the release API provides one; this is still not publisher-signature verification.
+- Version 3.3.10 checks destination write access before exiting, replaces the EXE at its existing path, and restores the backup if the new process exits before confirming startup. A still-running process is not killed on a startup timeout; files are retained for diagnosis. There is no separate launcher or .NET runtime.
 
 ## Run from source
 
@@ -81,7 +82,9 @@ py -3.13 -m venv .venv
 
 The result is **`dist\Binity.exe`**, with icons, both WAV sounds, and Windows version metadata included. This is a local unsigned build; the spec does not publish releases, access credentials, or change versions. Matching dependencies make the process repeatable, but byte-identical EXEs are not promised.
 
-The tests use temporary settings and controlled OS/network boundaries. They cover settings recovery, tray levels, autostart command parsing, updater behavior, and sound assets without emptying your Recycle Bin. They do not replace a live Windows integration check of deletion or updating.
+The tests use temporary settings and controlled OS/network boundaries. On Windows they also execute the PowerShell update helper against isolated fixtures, covering Unicode paths, process waiting, failed startup, and rollback. They never empty your Recycle Bin and do not replace a packaged-EXE integration check.
+
+For an opt-in packaged check, run `.\.venv\Scripts\python.exe tests/packaged_update_smoke.py --candidate dist/Binity.exe`. It builds a separate one-file test driver using the unchanged v3.3.7 updater source and the current updater, serves the candidate over loopback, and verifies startup at the original path with isolated settings. It does not automate the old application's UI or touch your running copy. Test artifacts stay under `build/`.
 
 `release_helper.py` is a maintainer publishing tool with external side effects. Use the spec above for local builds.
 

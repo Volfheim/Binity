@@ -11,3 +11,5 @@ packaging==25.0
 pefile==2024.8.26
 pywin32-ctypes==0.2.3
 setuptools==80.10.2
+# Optional packaged-update smoke test; never imported by the application.
+psutil==7.2.2

@@ -13,6 +13,47 @@ BUILD_CMD = 'pyinstaller --noconsole --onefile --icon=icons/bin_full.ico --add-d
 
 RELEASES = [
     {
+        "tag": "v3.3.10",
+        "prev": "v3.3.9",
+        "name": "Binity v3.3.10",
+        "body": """## English
+This maintenance release repairs the Windows update helper while keeping Binity a single portable EXE. The interface and tray icons are unchanged.
+
+### Fixes
+- Fixed the PowerShell process-ID parameter conflict that stopped update installation.
+- Removed the helper's dependency on `Get-FileHash` module discovery and loaded the command encoding at application startup.
+- Check destination write access and copy integrity before closing Binity.
+- Replace the EXE at its existing path. If the new process exits before confirming startup, restore and restart the previous version instead of launching from the download folder.
+- Preserve recovery files on a startup timeout without killing a running process or launching a duplicate.
+
+### Verification
+- Added execution-level Windows PowerShell regression tests for Unicode paths, process waiting, integrity checks, installation failures, and rollback.
+- Test code is not included in the application EXE.
+
+### Compatibility
+- Windows 10 version 1809+ and Windows 11 x64 remain the target platforms. No separate launcher or .NET installation is required.
+- If an older running copy reports a missing `_MEI/base_library.zip`, exit and reopen that same copy before retrying the update. The downloaded version cannot repair an old process that fails before launching it.
+
+## Русский
+Этот корректирующий выпуск исправляет Windows-helper обновления, сохраняя Binity в виде одного portable EXE. Интерфейс и значки трея не изменены.
+
+### Исправления
+- Устранён конфликт параметра идентификатора процесса PowerShell, который останавливал установку обновления.
+- Убрана зависимость helper от поиска модуля `Get-FileHash`; кодировка команды загружается при старте приложения.
+- Возможность записи в папку назначения и целостность копии проверяются до закрытия Binity.
+- EXE заменяется по прежнему пути. Если новый процесс завершился до подтверждения запуска, восстанавливается и запускается предыдущая версия вместо копии из папки загрузки.
+- При таймауте запуска сохраняются файлы для восстановления, без принудительного завершения работающего процесса и запуска дубликата.
+
+### Проверка
+- Добавлены регрессионные тесты с исполнением Windows PowerShell для Unicode-путей, ожидания процессов, проверки целостности, ошибок установки и отката.
+- Код тестов не входит в EXE приложения.
+
+### Совместимость
+- Целевыми платформами остаются Windows 10 версии 1809+ и Windows 11 x64. Отдельный launcher и установка .NET не требуются.
+- Если старая запущенная копия сообщает об отсутствии `_MEI/base_library.zip`, выйдите из неё и запустите ту же копию перед повторной попыткой обновления. Скачанная версия не может исправить старый процесс, который падает до её запуска.
+"""
+    },
+    {
         "tag": "v3.3.9",
         "prev": "v3.3.8",
         "name": "Binity v3.3.9",

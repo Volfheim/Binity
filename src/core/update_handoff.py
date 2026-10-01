@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import time
+from encodings.utf_16_le import encode as _encode_utf16le
 from pathlib import Path
 from subprocess import Popen
 
@@ -16,23 +17,37 @@ function Write-UpdateLog($c, [string]$message) {
     try { [IO.File]::AppendAllText($c.Log, "$(Get-Date -Format o) $message`r`n", $utf8) } catch {}
 }
 
-function Start-UpdateTarget($c, [string]$target) {
+function Get-PayloadDigest([string]$path) {
+    # Avoid Get-FileHash autoloading from an inherited PowerShell 7 module path.
+    $stream = [IO.File]::OpenRead($path)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try { return [BitConverter]::ToString($hash.ComputeHash($stream)).Replace('-', '') }
+    finally { $hash.Dispose(); $stream.Dispose() }
+}
+
+function Start-UpdateTarget($c, [string]$target, [bool]$updated = $true) {
     if ([IO.File]::Exists($c.Ready)) { [IO.File]::Delete($c.Ready) }
     # Write before starting: the new process consumes this during construction.
     [IO.File]::WriteAllLines($c.LaunchInfo, @("RUN_TARGET=$target", "FINAL=$($c.Final)"), $utf8)
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $target
-    $start.Arguments = '--show-after-update --update-ready-flag "' + $c.Ready + '"'
+    $start.Arguments = '--update-ready-flag "' + $c.Ready + '"'
+    if ($updated) { $start.Arguments = '--show-after-update ' + $start.Arguments }
     $start.WorkingDirectory = [IO.Path]::GetDirectoryName($target)
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     # A one-file PyInstaller child must unpack independently from the updater.
     $start.EnvironmentVariables['PYINSTALLER_RESET_ENVIRONMENT'] = '1'
+    $start.EnvironmentVariables.Remove('BINITY_UPDATE_CONFIG')
     foreach ($name in @('_MEIPASS2', '_PYI_APPLICATION_HOME_DIR', '_PYI_ARCHIVE_FILE',
                         '_PYI_PARENT_PROCESS_LEVEL', '_PYI_SPLASH_IPC')) {
         $start.EnvironmentVariables.Remove($name)
     }
-    $process = [Diagnostics.Process]::Start($start)
+    try { $process = [Diagnostics.Process]::Start($start) }
+    catch {
+        Write-UpdateLog $c "Could not start target: $_"
+        return $false
+    }
     try {
         $deadline = [DateTime]::UtcNow.AddSeconds(60)
         while ([DateTime]::UtcNow -lt $deadline) {
@@ -45,11 +60,22 @@ function Start-UpdateTarget($c, [string]$target) {
     } finally { $process.Dispose() }
 }
 
+function Prepare-UpdatePayload($c) {
+    if (-not [IO.File]::Exists($c.Downloaded)) { throw 'Downloaded file missing' }
+    if ((Get-PayloadDigest $c.Downloaded) -ne $c.Digest) {
+        throw 'Downloaded file changed before handoff'
+    }
+    # Check destination write access and copy integrity BEFORE asking Binity to exit.
+    [IO.File]::Copy($c.Downloaded, $c.Candidate, $false)
+    if ((Get-PayloadDigest $c.Candidate) -ne $c.Digest) {
+        throw 'Staged copy SHA-256 mismatch'
+    }
+}
+
 function Install-UpdatePayload($c) {
     for ($attempt = 0; $attempt -lt 8; $attempt++) {
         try {
-            [IO.File]::Copy($c.Downloaded, $c.Candidate, $true)
-            if ((Get-FileHash -LiteralPath $c.Candidate -Algorithm SHA256).Hash -ne $c.Digest) {
+            if ((Get-PayloadDigest $c.Candidate) -ne $c.Digest) {
                 throw 'Staged copy SHA-256 mismatch'
             }
             if ([IO.File]::Exists($c.Final)) {
@@ -66,10 +92,10 @@ function Install-UpdatePayload($c) {
     return $false
 }
 
-function Wait-ForBinityExit($c, [int]$pid, [string]$label) {
-    if ($pid -le 0) { return }
+function Wait-ForBinityExit($c, [int]$processId, [string]$label) {
+    if ($processId -le 0) { return }
     $process = $null
-    try { $process = [Diagnostics.Process]::GetProcessById($pid) }
+    try { $process = [Diagnostics.Process]::GetProcessById($processId) }
     catch [ArgumentException] { return }
     try {
         if (-not $process.WaitForExit(30000)) {
@@ -78,11 +104,27 @@ function Wait-ForBinityExit($c, [int]$pid, [string]$label) {
     } finally { $process.Dispose() }
 }
 
-function Invoke-BinityUpdate($c) {
-    if (-not [IO.File]::Exists($c.Downloaded)) { throw 'Downloaded file missing' }
-    if ((Get-FileHash -LiteralPath $c.Downloaded -Algorithm SHA256).Hash -ne $c.Digest) {
-        throw 'Downloaded file changed before handoff'
+function Restore-PreviousVersion($c) {
+    if (-not [IO.File]::Exists($c.Backup)) { return $false }
+    for ($attempt = 0; $attempt -lt 8; $attempt++) {
+        try {
+            if ([IO.File]::Exists($c.Final)) {
+                [IO.File]::Replace($c.Backup, $c.Final, $c.Candidate)
+            } else {
+                [IO.File]::Move($c.Backup, $c.Final)
+            }
+            Write-UpdateLog $c 'Previous executable restored after startup failure'
+            return $true
+        } catch {
+            Write-UpdateLog $c "Rollback attempt $($attempt + 1): $_"
+            if ($attempt -lt 7) { Start-Sleep -Milliseconds 500 }
+        }
     }
+    return $false
+}
+
+function Invoke-BinityUpdate($c) {
+    Prepare-UpdatePayload $c
     Write-UpdateLog $c 'Helper ready; waiting for the application to exit'
     [IO.File]::WriteAllText($c.HelperReady, 'ready', $utf8)
     Wait-ForBinityExit $c ([int]$c.ParentPid) 'Application process'
@@ -90,35 +132,36 @@ function Invoke-BinityUpdate($c) {
     # extraction directory and executable handle after the Python child exits.
     Wait-ForBinityExit $c ([int]$c.BootloaderPid) 'PyInstaller bootloader'
 
-    $target = $c.Downloaded
-    if (Install-UpdatePayload $c) { $target = $c.Final }
-    else { Write-UpdateLog $c 'Replacement failed; starting the retained staging copy' }
+    if (-not (Install-UpdatePayload $c)) {
+        # Never silently change the installed path. Keep the verified download.
+        Write-UpdateLog $c 'Replacement failed; restarting the existing executable'
+        if ([IO.File]::Exists($c.Final)) { $null = Start-UpdateTarget $c $c.Final $false }
+        throw 'Could not replace the installed EXE; download retained for retry'
+    }
 
     $ready = $false
-    try { $ready = Start-UpdateTarget $c $target }
+    try { $ready = Start-UpdateTarget $c $c.Final }
     catch {
         # Do not launch a second copy if startup timed out while it is alive.
         Write-UpdateLog $c "Startup error: $_"
         throw
     }
-    if (-not $ready -and $target -ne $c.Downloaded) {
-        Write-UpdateLog $c 'Final process exited before readiness; trying staging copy'
-        $target = $c.Downloaded
-        $ready = Start-UpdateTarget $c $target
-    }
-    if (-not $ready) { throw 'No startup acknowledgement; staging and backup retained' }
-
-    if ($target -eq $c.Final) {
-        foreach ($file in @($c.Downloaded, $c.Candidate, $c.Backup)) {
-            try { if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) } } catch {}
+    if (-not $ready) {
+        if (Restore-PreviousVersion $c) {
+            $null = Start-UpdateTarget $c $c.Final $false
         }
+        throw 'New version exited before readiness; update was not acknowledged'
+    }
+
+    foreach ($file in @($c.Downloaded, $c.Candidate, $c.Backup)) {
+        try { if ([IO.File]::Exists($file)) { [IO.File]::Delete($file) } } catch {}
     }
     [IO.File]::WriteAllText($c.Flag, '1', $utf8)
     try {
         $handoff = [IO.Path]::GetDirectoryName($c.Ready)
         if ([IO.Directory]::Exists($handoff)) { [IO.Directory]::Delete($handoff, $true) }
     } catch {}
-    Write-UpdateLog $c "Startup acknowledged: $target"
+    Write-UpdateLog $c "Startup acknowledged: $($c.Final)"
 }
 '''
 
@@ -136,7 +179,8 @@ try {
 
 
 def encoded_command(script: str = POWERSHELL_SCRIPT) -> str:
-    return base64.b64encode(script.encode("utf-16le")).decode("ascii")
+    # Load the codec at startup, not lazily from a possibly cleaned _MEI archive.
+    return base64.b64encode(_encode_utf16le(script)[0]).decode("ascii")
 
 
 def wait_for_helper(process: Popen, ready_file: Path, timeout_sec: float = 15) -> None:
