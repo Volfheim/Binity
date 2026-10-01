@@ -70,10 +70,10 @@ def main():
             if isinstance(widget, QMenu):
                 widget.grab()
                 QTest.qWait(250)
-            pixmap = widget.grab()
-            assert not pixmap.isNull()
+            snapshot = widget.grab().toImage().copy()
+            assert not snapshot.isNull()
             assert widget.palette().color(widget.backgroundRole()).lightness() < 128
-            images.append(pixmap)
+            images.append(snapshot)
             widget.hide()
         assert __version__ in about.version_label.text()
 
@@ -130,13 +130,13 @@ def main():
             text(label, position.x(), position.y() - 27, 206, 20, 11, "#bdcde2", True)
 
         placed = []
-        for widget, pixmap, position in zip(widgets, images, positions):
+        for widget, snapshot, position in zip(widgets, images, positions):
             x, y = position.x(), position.y()
             rect = QRectF(x, y, widget.width(), widget.height())
             assert QRectF(0, 0, 1200, 700).contains(rect), (language, rect)
             assert all(not rect.intersects(other) for other in placed), (language, rect)
             placed.append(rect)
-            painter.drawPixmap(QPointF(x, y), pixmap)
+            painter.drawImage(QPointF(x, y), snapshot)
         painter.end()
         assert sheet.save(str(output / filename))
         print(f"{language}: {filename}, 2400x1400, Binity {__version__}")

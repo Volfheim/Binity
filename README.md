@@ -16,7 +16,7 @@ A small Windows tray utility to see, open, and empty your Recycle Bin.
 
 ![Binity tray menu, settings, double-click actions, confirmation and About dialog in English](docs/images/main-window.png)
 
-<sub>Real v3.4.0 Qt widgets rendered from source with isolated example settings, arranged together for this overview. Arrows show submenu navigation. Native menu appearance can vary with Windows. No files were deleted to make this image.</sub>
+<sub>Real v3.4.1 Qt widgets rendered from source with isolated example settings, arranged together for this overview. Arrows show submenu navigation. Native menu appearance can vary with Windows. No files were deleted to make this image.</sub>
 
 ## Small icon. Everyday control.
 
