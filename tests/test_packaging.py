@@ -1,11 +1,36 @@
 """Ensure dependency analysis never inherits unrelated native tools from PATH."""
 
+import ast
 import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+
+from src.version import __version__
+
+
+class VersionMetadataTests(unittest.TestCase):
+    def test_windows_version_metadata_matches_application_version(self):
+        root = Path(__file__).resolve().parents[1]
+        tree = ast.parse((root / "version_info.txt").read_text("utf-8"))
+        numeric = {}
+        strings = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id == "FixedFileInfo":
+                numeric.update((item.arg, ast.literal_eval(item.value)) for item in node.keywords
+                               if item.arg in ("filevers", "prodvers"))
+            elif node.func.id == "StringStruct":
+                key, value = (ast.literal_eval(arg) for arg in node.args)
+                if key in ("FileVersion", "ProductVersion"):
+                    strings[key] = value
+        version = tuple(map(int, __version__.split("."))) + (0,)
+        self.assertEqual(numeric, {"filevers": version, "prodvers": version})
+        self.assertEqual(strings, {"FileVersion": __version__ + ".0",
+                                   "ProductVersion": __version__ + ".0"})
 
 
 @unittest.skipUnless(os.name == "nt", "Windows build configuration")

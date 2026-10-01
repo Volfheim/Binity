@@ -6,12 +6,14 @@ import sys
 import traceback
 
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
 
 from src.core.i18n import I18n
 from src.core.resources import resource_path
 from src.core.settings import Settings
 from src.core.single_instance import acquire_single_instance_lock
+from src.ui.dialogs.message_dialog import MessageDialog
+from src.ui.theme import ThemeController
 from src.ui.tray.tray_app import TrayApp
 from src.version import __app_name__
 
@@ -109,21 +111,18 @@ def main() -> int:
 
     settings = Settings()
     i18n = I18n(settings.language)
+    theme_controller = ThemeController(app, sync_enabled=settings.theme_sync)
 
     lock = acquire_single_instance_lock()
     if lock is None:
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setWindowTitle(__app_name__)
-        msg.setText(i18n.tr("already_running"))
-        if not app_icon.isNull():
-            msg.setWindowIcon(app_icon)
+        msg = MessageDialog(i18n, __app_name__, i18n.tr("already_running"), icon=app_icon)
         msg.exec()
         return 0
 
     app._instance_lock = lock  # type: ignore[attr-defined]
 
-    tray_app = TrayApp(settings=settings, i18n=i18n, show_after_update=show_after_update)
+    tray_app = TrayApp(settings=settings, i18n=i18n, show_after_update=show_after_update,
+                       theme_controller=theme_controller)
     app._tray_app = tray_app  # type: ignore[attr-defined]
     _write_ready_flag(update_ready_flag)
 

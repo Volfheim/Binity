@@ -4,9 +4,9 @@ import re
 from pathlib import Path
 from typing import Callable, Dict
 
-from PyQt6.QtCore import QObject, QThreadPool, QTimer, Qt
+from PyQt6.QtCore import QObject, QThreadPool, QTimer
 from PyQt6.QtGui import QAction, QActionGroup, QIcon
-from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QProgressDialog, QSystemTrayIcon
+from PyQt6.QtWidgets import QApplication, QDialog, QMenu, QMessageBox, QSystemTrayIcon
 
 from src.core.formatting import format_size
 from src.core.background import BackgroundTask, BackgroundTaskRunner, TaskResult
@@ -24,9 +24,12 @@ from src.services.recycle_bin import (
     SECURE_DELETE_ZERO,
 )
 from src.services.sound import SOUND_OFF, SOUND_PAPER, SOUND_TRASH, SOUND_WINDOWS, SoundService
-from src.services.system_theme import SystemThemeService
 from src.ui.dialogs.about_dialog import AboutDialog
 from src.ui.dialogs.confirm_dialog import ConfirmDialog
+from src.ui.dialogs.download_dialog import DownloadDialog
+from src.ui.dialogs.message_dialog import MessageDialog
+from src.ui.dialogs.update_dialog import UpdateDialog
+from src.ui.theme import ThemeController
 
 OPEN_ACTION = "open"
 CLEAR_ACTION = "clear"
@@ -42,7 +45,8 @@ ICON_MAP = {
 
 
 class TrayApp(QObject):
-    def __init__(self, settings: Settings, i18n: I18n, show_after_update: bool = False) -> None:
+    def __init__(self, settings: Settings, i18n: I18n, show_after_update: bool = False,
+                 theme_controller: ThemeController | None = None) -> None:
         super().__init__()
         self.settings = settings
         self.i18n = i18n
@@ -50,10 +54,12 @@ class TrayApp(QObject):
         self.recycle_bin = RecycleBinService()
         self.autostart = AutostartService()
         self.sound_service = SoundService()
-        self.theme_service = SystemThemeService()
         self.updater = Updater(settings)
 
-        self.current_theme = self.theme_service.get_theme()
+        self.theme_controller = theme_controller or ThemeController(
+            QApplication.instance(), sync_enabled=settings.theme_sync,
+        )
+        self.current_theme = self.theme_controller.current_theme
         self.icons = self._load_icons(self.current_theme)
         self.current_level = -1
 
@@ -69,8 +75,10 @@ class TrayApp(QObject):
         self._update_download_in_progress = False
         self._update_check_task: BackgroundTask | None = None
         self._update_download_task: BackgroundTask | None = None
-        self._update_progress_dialog: QProgressDialog | None = None
+        self._update_progress_dialog: DownloadDialog | None = None
+        self._update_dialog: UpdateDialog | None = None
         self._update_notified_version = ""
+        self.theme_controller.changed.connect(self._on_theme_changed)
 
         self._overflow_notified = False
         self._thread_pool = QThreadPool.globalInstance()
@@ -392,11 +400,15 @@ class TrayApp(QObject):
             self._about_dialog.refresh_texts()
         if self._confirm_dialog and self._confirm_dialog.isVisible():
             self._confirm_dialog.refresh_texts()
+        if self._update_dialog:
+            self._update_dialog.refresh_texts()
+        if self._update_progress_dialog:
+            self._update_progress_dialog.refresh_texts()
 
     def _refresh_update_action_text(self) -> None:
         if self._update_download_in_progress:
             self.update_now_action.setVisible(True)
-            self.update_now_action.setEnabled(False)
+            self.update_now_action.setEnabled(True)
             return
 
         if self.updater.has_update:
@@ -429,45 +441,15 @@ class TrayApp(QObject):
         text: str,
         informative_text: str = "",
         detailed_text: str = "",
-    ) -> QMessageBox:
-        box = QMessageBox()
-        box.setIcon(icon)
-        box.setWindowTitle(title)
-        box.setText(text)
-        if informative_text:
-            box.setInformativeText(informative_text)
-        if detailed_text:
-            box.setDetailedText(detailed_text)
-
-        window_icon = self._window_icon()
-        if not window_icon.isNull():
-            box.setWindowIcon(window_icon)
-
-        return box
+    ) -> MessageDialog:
+        return MessageDialog(self.i18n, title, text, severity=icon, icon=self._window_icon(),
+                             informative_text=informative_text, detailed_text=detailed_text)
 
     def _show_update_progress_dialog(self) -> None:
         if self._update_progress_dialog is None:
-            dialog = QProgressDialog(
-                self.i18n.tr("update_downloading_progress").format(percent=0),
-                "",
-                0,
-                100,
-                None,
-            )
-            dialog.setWindowModality(Qt.WindowModality.NonModal)
-            dialog.setAutoClose(False)
-            dialog.setAutoReset(False)
-            dialog.setCancelButton(None)
-            dialog.setMinimumDuration(0)
-            window_icon = self._window_icon()
-            if not window_icon.isNull():
-                dialog.setWindowIcon(window_icon)
-            self._update_progress_dialog = dialog
-
-        self._update_progress_dialog.setWindowTitle(self.i18n.tr("update_dialog_title"))
-        self._update_progress_dialog.setLabelText(self.i18n.tr("update_downloading_progress").format(percent=0))
+            self._update_progress_dialog = DownloadDialog(self.i18n, self._window_icon())
+        self._update_progress_dialog.refresh_texts()
         self._update_progress_dialog.setValue(0)
-        self._update_progress_dialog.setMinimumWidth(350)
         self._update_progress_dialog.show()
 
     def _close_update_progress_dialog(self) -> None:
@@ -535,20 +517,14 @@ class TrayApp(QObject):
             3000,
         )
 
-    def _sync_system_theme(self) -> None:
-        if not self.settings.theme_sync:
-            return
-
-        detected_theme = self.theme_service.get_theme()
-        if detected_theme == self.current_theme:
-            return
-
-        self.current_theme = detected_theme
+    def _on_theme_changed(self, theme: str) -> None:
+        self.current_theme = theme
         self.icons = self._load_icons(self.current_theme)
         self.current_level = -1
 
-        if self._about_dialog and self._about_dialog.isVisible():
-            self._about_dialog.set_theme(self.current_theme)
+        for dialog in (self._about_dialog, self._confirm_dialog):
+            if dialog is not None:
+                dialog.set_theme(theme)
 
     def _handle_overflow_notification(self, size_bytes: int) -> None:
         if not self.settings.overflow_notify_enabled:
@@ -571,8 +547,6 @@ class TrayApp(QObject):
     def _refresh_state(self) -> None:
         if self._shutting_down:
             return
-
-        self._sync_system_theme()
 
         info = self.recycle_bin.get_info()
         if not info.available:
@@ -644,8 +618,7 @@ class TrayApp(QObject):
 
     def _on_theme_sync_toggled(self, enabled: bool) -> None:
         self.settings.set("theme_sync", bool(enabled))
-        if enabled:
-            self._sync_system_theme()
+        self.theme_controller.set_sync_enabled(enabled)
 
     def _on_auto_updates_toggled(self, enabled: bool) -> None:
         self.settings.set("auto_check_updates", bool(enabled))
@@ -823,42 +796,35 @@ class TrayApp(QObject):
             info_box.exec()
 
     def _show_update_dialog(self) -> None:
+        if self._shutting_down:
+            return
         if self._update_download_in_progress:
+            if self._update_progress_dialog:
+                self._focus_dialog(self._update_progress_dialog)
+            return
+        if self._update_dialog is not None:
+            self._focus_dialog(self._update_dialog)
             return
         if not self.updater.has_update:
             self._check_for_updates(force=True, manual=True)
             return
 
         release_notes = self._format_release_notes(self.updater.update_body)
-        msg = self._build_message_box(
-            QMessageBox.Icon.Information,
-            self.i18n.tr("update_dialog_title"),
-            self.i18n.tr("update_dialog_message").format(version=self.updater.update_version),
-            informative_text=self.i18n.tr("update_dialog_hint"),
-            detailed_text=f"{self.i18n.tr('release_notes')}:\n\n{release_notes}",
+        dialog = UpdateDialog(
+            self.i18n, self.updater.update_version, release_notes, self._window_icon(),
         )
-        msg.setStyleSheet(
-            """
-            QLabel {
-                min-width: 250px;
-            }
-            QTextEdit {
-                min-width: 380px;
-                min-height: 200px;
-            }
-            """
-        )
+        self._update_dialog = dialog
+        try:
+            result = dialog.exec()
+        finally:
+            self._update_dialog = None
+            dialog.deleteLater()
 
-        btn_update = msg.addButton(self.i18n.tr("update_install"), QMessageBox.ButtonRole.AcceptRole)
-        btn_skip = msg.addButton(self.i18n.tr("update_skip"), QMessageBox.ButtonRole.DestructiveRole)
-        btn_later = msg.addButton(self.i18n.tr("update_later"), QMessageBox.ButtonRole.RejectRole)
-        msg.setDefaultButton(btn_update)
-        msg.exec()
-
-        clicked = msg.clickedButton()
-        if clicked == btn_update:
+        if self._shutting_down:
+            return
+        if result == QDialog.DialogCode.Accepted:
             self._start_update_download()
-        elif clicked == btn_skip:
+        elif result == UpdateDialog.SKIP_VERSION:
             self.updater.skip_version()
             self._update_notified_version = ""
             self._refresh_update_action_text()
@@ -872,7 +838,7 @@ class TrayApp(QObject):
         self._update_download_in_progress = True
         self.check_updates_action.setEnabled(False)
         self.update_now_action.setVisible(True)
-        self.update_now_action.setEnabled(False)
+        self.update_now_action.setEnabled(True)
         self.update_now_action.setText(self.i18n.tr("update_downloading_progress").format(percent=0))
         self._show_update_progress_dialog()
 
@@ -899,7 +865,6 @@ class TrayApp(QObject):
 
         self.update_now_action.setText(self.i18n.tr("update_downloading_progress").format(percent=percent))
         if self._update_progress_dialog is not None:
-            self._update_progress_dialog.setLabelText(self.i18n.tr("update_downloading_progress").format(percent=percent))
             self._update_progress_dialog.setValue(max(0, min(100, int(percent))))
 
     def _on_update_download_finished(self, task_result: TaskResult) -> None:
@@ -960,6 +925,8 @@ class TrayApp(QObject):
         self.timer.stop()
         self.update_timer.stop()
         self._tray_retry_timer.stop()
+        if self._update_dialog:
+            self._update_dialog.reject()
         self._close_update_progress_dialog()
         self.tray.hide()
         from PyQt6.QtWidgets import QApplication
